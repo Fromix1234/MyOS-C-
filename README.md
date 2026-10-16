@@ -14,6 +14,11 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ![Рабочий стол MyOS](fresh.png)
 
+> Не хочешь собирать сам? Готовый образ системы лежит в
+> **[Releases](https://github.com/Fromix1234/MyOS-C-/releases/latest)** — скачай `disk.img`
+> и переходи сразу к разделу 4 «Установка на реальную флешку».
+> Рядом лежит `disk.img.sha256` — контрольная сумма для проверки.
+
 ---
 
 ## Что такое MyOS

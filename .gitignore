@@ -1,5 +1,6 @@
 # --- Результаты сборки (создаёт build.ps1) ---
 disk.img
+disk.img.sha256
 *.bin
 *.o
 *.elf
