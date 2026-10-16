@@ -21,7 +21,8 @@ Set-Location $P
 
 $CXXFLAGS = @("-m32","-ffreestanding","-fno-exceptions","-fno-rtti","-fno-pie",
               "-fno-stack-protector","-nostdlib","-nostartfiles","-mno-sse",
-              "-mno-mmx","-mno-80387","-fno-asynchronous-unwind-tables")
+              "-mno-mmx","-mno-80387","-fno-asynchronous-unwind-tables",
+              "-Os","-fno-strict-aliasing")
 
 Write-Host "=== 1. Compiling C++ kernel (kernel.cpp) ===" -ForegroundColor Cyan
 # Compile TWICE: the first pass learns the kernel size, the second pass bakes

@@ -12,6 +12,7 @@ disk.img.sha256
 *.png
 !fresh.png
 !mt3.png
+!inst.png
 
 # --- Папка со скриншотами пользователя ---
 Screenshorts/

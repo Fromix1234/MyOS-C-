@@ -27,12 +27,20 @@ const unsigned int C_WHITE  = 0xFFFFFF;
 const unsigned int C_RED    = 0xFF3B30;  // «светофор» окна: красная кнопка
 const unsigned int C_YELLOW = 0xFFCC00;  // ...жёлтая
 const unsigned int C_GREEN  = 0x34C759;  // ...зелёная
+// Цвета «стекла» (тусклые — они ложатся ПОВЕРХ фона полупрозрачно):
+const unsigned int C_GLASS_TITLE = 0x2A3140;   // шапка окна
+const unsigned int C_GLASS_DOCK  = 0x3A4150;   // плашка дока
+const unsigned int C_GLASS_ICON  = 0x1E2028;   // подложка иконки
 
-// Цвет фона («рабочего стола») для строки y. Сейчас — ПРОСТО ЧЁРНЫЙ.
-// Это ЧИСТАЯ функция от y: её можно вызвать в любом месте экрана, чтобы
-// ВОССТАНОВИТЬ фон (удобно для полупрозрачного стекла и для скролла).
+// Цвет фона («рабочего стола») для строки y — очень мягкий градиент:
+// сверху тёмно-синий, книзу чёрный. Он ПОЧТИ чёрный (белый текст читается
+// идеально), но по нему ВИДНО стекло: полупрозрачные док и шапки окон
+// слегка подсвечиваются фоном. Функция чистая: её можно вызвать в любом
+// месте экрана, чтобы ВОССТАНОВИТЬ фон (стекло, скролл, очистка областей).
 unsigned int wallpaper(int y) {
-    return C_BLACK;
+    int t = (y * 44) / (H > 0 ? H : 1);           // 44 сверху .. 0 снизу
+    unsigned int v = (unsigned int)(44 - t);
+    return ((v / 2) << 16) | ((v * 3 / 4) << 8) | v;
 }
 
 // ===========================================================================
@@ -64,11 +72,60 @@ void put_pixel(int x, int y, unsigned int color) {
     }
 }
 
-// Залить прямоугольник цветом (сплошная заливка)
+// Залить прямоугольник цветом. Пишем не по одному пикселю, а СРАЗУ ЦЕЛЫМИ
+// строками: при 32 битах на пиксель — командой rep stosl (процессор сам
+// повторяет запись слова), поэтому фон, окна и очистка областей ускорились
+// в разы. Границы отсекаются один раз, а не в каждой точке.
 void fill_rect(int x, int y, int w, int h, unsigned int color) {
-    for (int j = y; j < y + h; j++)
-        for (int i = x; i < x + w; i++)
-            put_pixel(i, j, color);
+    if (w <= 0 || h <= 0) return;
+    int x0 = x < 0 ? 0 : x,  y0 = y < 0 ? 0 : y;
+    int x1 = x + w, y1 = y + h;
+    if (x1 > W) x1 = W;
+    if (y1 > H) y1 = H;
+    if (x0 >= x1 || y0 >= y1) return;
+    unsigned int v = encode_color(color);
+    int n = x1 - x0;                              // сколько пикселей в строке
+    if (FB_BPP == 32) {
+        unsigned int* row = (unsigned int*)(fb + y0 * FB_PITCH) + x0;
+        int step = FB_PITCH >> 2;                 // шаг строки в 32-битных словах
+        for (int j = y0; j < y1; j++, row += step) {
+            // rep stosl: процессор сам повторяет запись слова (ECX раз по 4 байта).
+            // «+D» и «+c» — ЧЕСТНО говорим компилятору, что EDI и ECX изменяются
+            // (иначе он счёл бы их нетронутыми и испортил бы свои переменные).
+            unsigned int* d = row;
+            int cnt = n;
+            asm volatile("cld; rep stosl" : "+D"(d), "+c"(cnt) : "a"(v) : "memory");
+        }
+    } else {                                      // 24 бита: три байта на пиксель
+        unsigned char b0 = (unsigned char)(v & 0xFF);
+        unsigned char b1 = (unsigned char)((v >> 8) & 0xFF);
+        unsigned char b2 = (unsigned char)((v >> 16) & 0xFF);
+        for (int j = y0; j < y1; j++) {
+            unsigned char* p = fb + j * FB_PITCH + x0 * 3;
+            for (int i = 0; i < n; i++, p += 3) { p[0] = b0; p[1] = b1; p[2] = b2; }
+        }
+    }
+}
+
+// Прочитать цвет 0xRRGGBB прямо из видеопамяти (нужно полупрозрачности)
+unsigned int read_pixel(int x, int y) {
+    if (x < 0 || x >= W || y < 0 || y >= H) return 0;
+    unsigned char* p = fb + y * FB_PITCH + x * (FB_BPP / 8);
+    unsigned int v;
+    if (FB_BPP == 32) v = *(volatile unsigned int*)p;
+    else v = (unsigned int)p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16);
+    unsigned int r = (v >> FB_RPOS) & 0xFF;
+    unsigned int g = (v >> FB_GPOS) & 0xFF;
+    unsigned int b = (v >> FB_BPOS) & 0xFF;
+    return (r << 16) | (g << 8) | b;
+}
+
+// Стереть область «до обоев» (например, подпись над доком) — тем же фоном
+void erase_to_wallpaper(int x, int y, int w, int h) {
+    for (int j = y; j < y + h; j++) {
+        if (j < 0 || j >= H) continue;
+        fill_rect(x, j, w, 1, wallpaper(j));
+    }
 }
 
 // Нарисовать КОНТУР прямоугольника (только рамка)
@@ -196,31 +253,59 @@ const unsigned char bayer4[16] = {       // матрица дизеринга 4x
     15,  7, 13,  5
 };
 
-// Залить прямоугольник (со скруглением углов r) «матовым стеклом»:
-// dens/16 пикселей -> цвет color (белые точки), остальные -> ФОН (чёрный).
-// При dens = 0 заливка выходит ПРОСТО ЧЁРНОЙ (сейчас так и есть: GLASS = 0).
-void fill_glass(int x, int y, int w, int h, int r, unsigned int color, int dens) {
-    for (int j = 0; j < h; j++)
+// Идёт ПОЛНЫЙ кадр (компоновка рабочего стола)? Тогда окна и док рисуются
+// полупрозрачными. При точечных перерисовках стекло кладётся плотно: иначе
+// одни и те же пиксели смешивались бы многократно и картинка «плыла».
+bool comp_full = false;
+
+// Залить прямоугольник (со скруглением углов r) ЦВЕТНЫМ СТЕКЛОМ.
+// alpha = 0..256 — насколько плотно цвет ложится ПОВЕРХ того, что под ним
+// (256 = совсем не прозрачно). Смешивание настоящее: читаем пиксель из
+// видеопамяти, считаем новое значение — поэтому сквозь окно и док ВИДНО,
+// что находится за ними. Так работает «жидкое стекло» без float.
+void fill_glass(int x, int y, int w, int h, int r, unsigned int color, int alpha) {
+    if (w <= 0 || h <= 0) return;
+    int a = comp_full ? alpha : 256;              // вне компоновки — плотно
+    if (a < 0) a = 0;
+    if (a > 256) a = 256;
+    unsigned int ca = encode_color(color);
+    int ia = 256 - a;
+    int rp = FB_RPOS, gp = FB_GPOS, bp = FB_BPOS, n = FB_BPP / 8;
+    int cr = (ca >> rp) & 0xFF, cg = (ca >> gp) & 0xFF, cb = (ca >> bp) & 0xFF;
+    for (int j = 0; j < h; j++) {
+        int py = y + j;
+        if (py < 0 || py >= H) continue;
+        unsigned char* row = fb + py * FB_PITCH;
         for (int i = 0; i < w; i++) {
-            // скругление углов: пиксель вне дуги не трогаем (остаётся фон)
-            if (r > 0) {
+            if (r > 0) {                          // скругление углов
                 int cx = -1, cy = -1;
-                if (i < r && j < r)                       { cx = r;             cy = r; }
-                else if (i >= w - r && j < r)             { cx = w - 1 - r;     cy = r; }
-                else if (i < r && j >= h - r)             { cx = r;             cy = h - 1 - r; }
-                else if (i >= w - r && j >= h - r)        { cx = w - 1 - r;     cy = h - 1 - r; }
+                if (i < r && j < r)                { cx = r;         cy = r; }
+                else if (i >= w - r && j < r)      { cx = w - 1 - r; cy = r; }
+                else if (i < r && j >= h - r)      { cx = r;         cy = h - 1 - r; }
+                else if (i >= w - r && j >= h - r) { cx = w - 1 - r; cy = h - 1 - r; }
                 if (cx >= 0) {
                     int dx = i - cx, dy = j - cy;
                     if (dx * dx + dy * dy > r * r) continue;   // вне дуги
                 }
             }
-            int px = x + i, py = y + j;
-            if (px < 0 || px >= W || py < 0 || py >= H) continue;
-            if (bayer4[(py & 3) * 4 + (px & 3)] < dens)
-                put_pixel(px, py, color);          // капля стекла
-            else
-                put_pixel(px, py, wallpaper(py));  // просвет = фон (чёрный)
+            int px = x + i;
+            if (px < 0 || px >= W) continue;
+            unsigned char* p = row + px * n;
+            unsigned int old;
+            if (FB_BPP == 32) old = *(volatile unsigned int*)p;
+            else old = (unsigned int)p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16);
+            int orr = (old >> rp) & 0xFF, og = (old >> gp) & 0xFF, ob = (old >> bp) & 0xFF;
+            unsigned int nv = (unsigned int)(((cr * a + orr * ia) >> 8) << rp)
+                            | (unsigned int)(((cg * a + og * ia) >> 8) << gp)
+                            | (unsigned int)(((cb * a + ob * ia) >> 8) << bp);
+            if (FB_BPP == 32) *(volatile unsigned int*)p = nv;
+            else {
+                p[0] = (unsigned char)(nv & 0xFF);
+                p[1] = (unsigned char)((nv >> 8) & 0xFF);
+                p[2] = (unsigned char)((nv >> 16) & 0xFF);
+            }
         }
+    }
 }
 
 // Полупрозрачная точечная заливка поверх УЖЕ нарисованного (фон не трогаем).
@@ -256,10 +341,7 @@ void draw_round_rect(int x, int y, int w, int h, int r, unsigned int color) {
 
 // Залить весь экран свежими обоями (рабочий стол)
 void fill_wallpaper() {
-    for (int y = 0; y < H; y++) {
-        unsigned int c = wallpaper(y);
-        for (int x = 0; x < W; x++) put_pixel(x, y, c);
-    }
+    for (int y = 0; y < H; y++) fill_rect(0, y, W, 1, wallpaper(y));
 }
 
 // ===========================================================================
@@ -326,25 +408,32 @@ void init_layout() {
     if (COLS > CG_COLS) COLS = CG_COLS;     // но не больше теневой копии текста
     if (ROWS > CG_ROWS) ROWS = CG_ROWS;
 }
-// Плотность «стекла»: сколько белых точек поверх чёрного фона (из 16).
-// 0 = окно заливается ПРОСТО ЧЁРНЫМ — так текст читается идеально чётко.
-const int GLASS = 0;
+// Плотность «стекла» (из 256): чем больше, тем менее прозрачно.
+// Тело окна почти непрозрачное — так текст читается идеально чётко,
+// а шапка, док и иконки «стеклянные» заметнее (сквозь них видно фон).
+const int GLASS       = 226;    // тело окна
+const int GLASS_TITLE = 150;    // шапка окна
+const int GLASS_DOCK  = 145;    // плашка дока
+const int GLASS_ICON  = 130;    // подложка иконки
 const unsigned int TEXT_COL = C_WHITE;      // белый текст
 
-// Нарисовать плавающее окно в точке (x, y): чёрный фон, белая рамка, шапка.
-// Общая функция для всех окон (консоль, About) — геометрию задаёт вызывающий.
+// Нарисовать плавающее окно в точке (x, y): стеклянное тело, шапка, рамка.
+// Общая функция для всех окон (консоль, About, приложения) — геометрию
+// задаёт вызывающий, а размеры окна он же кладёт в win_wp/win_hp.
 void draw_window_frame(int x, int y, int w, int h, const char* title) {
-    // 1. фон окна — простой чёрный: при GLASS = 0 дизеринг выключен полностью
-    fill_glass(x, y, w, h, WIN_R, C_WHITE, GLASS);
-    // 2. белая рамка в 1 пиксель по контуру
+    // 1. тело окна — почти чёрное стекло (сквозь него чуть видно фон)
+    fill_glass(x, y, w, h, WIN_R, C_BLACK, GLASS);
+    // 2. шапка — светлее и полупрозрачнее тела: «матовое стекло»
+    fill_glass(x + WIN_R / 2, y + 1, w - WIN_R, TITLE_H - 1, 0, C_GLASS_TITLE, GLASS_TITLE);
+    // 3. белая рамка в 1 пиксель по контуру
     draw_round_rect(x, y, w, h, WIN_R, C_WHITE);
-    // 3. разделитель шапки (тонкая светлая линия)
+    // 4. разделитель шапки (тонкая светлая линия)
     dither_over(x + WIN_R, y + TITLE_H, w - 2 * WIN_R, 1, C_WHITE, 7);
-    // 4. «светофор» — кнопки окна (красная / жёлтая / зелёная)
+    // 5. «светофор» — кнопки окна (красная / жёлтая / зелёная)
     fill_circle(x + 11, y + 9, 3, C_RED);      // красная (закрыть)
     fill_circle(x + 23, y + 9, 3, C_YELLOW);   // жёлтая
     fill_circle(x + 35, y + 9, 3, C_GREEN);    // зелёная
-    // 5. заголовок окна (по центру шапки по вертикали)
+    // 6. заголовок окна (по центру шапки по вертикали)
     draw_text(x + 44, y + 1, title, TEXT_COL);
 }
 
@@ -365,13 +454,19 @@ void code_open();                        // редактор кода MyC
 void win_place(int a, int w, int h);     // оконный менеджер: поставить окно
 void win_raise(int a);                   // поднять окно наверх (и дать фокус)
 void dock_launch(int i);                 // запуск/подъём приложения из дока
+void inst_open();                        // графический мастер установки (setup)
+int  win_w(int want);                    // размер окна — не больше экрана
+int  win_h(int want);
 
 // ===========================================================================
 //  ОКОННЫЙ МЕНЕДЖЕР — несколько окон на экране одновременно
 // ===========================================================================
 //  У каждого приложения есть окно со своим положением и «слоем» (z-порядком).
 //  Номера приложений совпадают с порядком иконок в доке.
-enum { APP_CMD = 0, APP_FILES, APP_SET, APP_TASKS, APP_CODE, APP_GAME, APP_ABOUT, APP_N };
+// APP_INSTALL — графический мастер установки: иконки в доке у него нет
+// (он вызывается командой setup в консоли), но живёт он по тем же законам:
+// своё окно, свой слой, свой фокус клавиатуры.
+enum { APP_CMD = 0, APP_FILES, APP_SET, APP_TASKS, APP_CODE, APP_GAME, APP_ABOUT, APP_INSTALL, APP_N };
 
 int  win_x[APP_N], win_y[APP_N];       // положение окна на экране
 int  win_wp[APP_N], win_hp[APP_N];     // размер окна (нужен для попадания мышью)
@@ -598,8 +693,6 @@ char cmd_line[161];                      // буфер вводимой кома
 int  cmd_len = 0;
 bool cmd_active = false;                 // открыта ли консоль
 bool e0_prefix = false;                  // был префикс E0 (стрелки и др. клавиши)
-int  setup_state = 0;                    // мастер установки: 0=выкл, 1=ждём раздел, 2=ждём yes
-int  setup_part = 0;                     // раздел, выбранный в мастере
 char hist[8][161];                       // история команд (до 8)
 int  hist_count = 0;                     // сколько команд сохранено
 int  hist_pos = 0;                       // позиция (hist_count = свежая строка)
@@ -618,7 +711,7 @@ void scroll_up() {
         src += FB_PITCH;
     }
     // освободившуюся снизу строку — заново «стеклом» (просвет = свежие обои)
-    fill_glass(TXT_X, TXT_Y + TXT_H - 16, TXT_W, 16, 0, C_WHITE, GLASS);
+    fill_rect(TXT_X, TXT_Y + TXT_H - 16, TXT_W, 16, C_BLACK);
 }
 
 void cmd_newline() {
@@ -664,7 +757,7 @@ void cmd_backspace() {
     if (cur_col > 0) {
         cur_col--;
         if (cur_row < CG_ROWS && cur_col < CG_COLS) cmd_grid[cur_row][cur_col] = ' ';
-        fill_glass(TXT_X + cur_col * 8, TXT_Y + cur_row * 16, 8, 16, 0, C_WHITE, GLASS);
+        fill_rect(TXT_X + cur_col * 8, TXT_Y + cur_row * 16, 8, 16, C_BLACK);
     }
 }
 
@@ -711,7 +804,7 @@ void cmd_submit() {
 
 // Перерисовать строку ввода: очистить вводимую часть и написать cmd_line заново
 void redraw_input() {
-    fill_glass(TXT_X + 2 * 8, TXT_Y + cur_row * 16, (COLS - 2) * 8, 16, 0, C_WHITE, GLASS);
+    fill_rect(TXT_X + 2 * 8, TXT_Y + cur_row * 16, (COLS - 2) * 8, 16, C_BLACK);
     if (cur_row < CG_ROWS)                                   // чистим и теневую копию
         for (int i = 2; i < COLS && i < CG_COLS; i++) cmd_grid[cur_row][i] = ' ';
     int cc = 2;                          // ввод идёт после промпта "> "
@@ -752,19 +845,12 @@ void cmd_handle_key(int sc) {
     bool ext = e0_prefix; e0_prefix = false;
 
     if (sc == SC_F3 && !ext) {           // F3 — закрыть консоль
-        setup_state = 0;                 // незаконченный мастер установки отменяем
         cmd_active = false;
         win_close_app(APP_CMD);          // вернуть фокус другому окну
         draw_desktop();                  // перерисовать рабочий стол
         return;
     }
-    if (sc == 0x01 && !ext) {            // Esc — отменить мастер, если он открыт
-        if (setup_state != 0) {
-            setup_state = 0;
-            cmd_print("Setup cancelled.\n");
-        }
-        return;
-    }
+    if (sc == 0x01 && !ext) return;      // Esc в консоли ничего не делает
     if (ext) {                           // расширенные клавиши (после E0)
         if (!(sc & 0x80)) {              // только нажатия (не отпускания)
             if (sc == 0x48) hist_up();       // Up   — предыдущая команда
@@ -1436,11 +1522,14 @@ void install_plan(int n, unsigned int plba, unsigned int psize) {
     cmd_print("MyFS files stay untouched.\n");
 }
 
-// Сама установка (без проверок и вопросов): копируем и помечаем активным
-void install_do(int n, unsigned int plba) {
-    cmd_print("Installing to P");
-    cmd_putchar((char)('0' + n));
-    cmd_print("...\n");
+// Сама установка (без проверок и вопросов): копируем и помечаем активным.
+// talk = false — не печатать шаги в консоль (мастер показывает их в окне).
+void install_do(int n, unsigned int plba, bool talk = true) {
+    if (talk) {
+        cmd_print("Installing to P");
+        cmd_putchar((char)('0' + n));
+        cmd_print("...\n");
+    }
 
     // --- 1. VBR: сектор 1 диска + впечатать LBA раздела (поле на +504) ---
     ata_read_sector(1, disk_buf);
@@ -1449,22 +1538,24 @@ void install_do(int n, unsigned int plba) {
     disk_buf[506] = (unsigned char)((plba >> 16) & 0xFF);
     disk_buf[507] = (unsigned char)((plba >> 24) & 0xFF);
     ata_write_sector(plba, disk_buf);
-    cmd_print("  VBR -> "); print_dec(plba); cmd_print("\n");
+    if (talk) { cmd_print("  VBR -> "); print_dec(plba); cmd_print("\n"); }
 
     // --- 2. stage2 (2 сектора): сектора 2-3 диска -> +1..+2 раздела ---
     ata_read_sector(2, disk_buf);
     ata_write_sector(plba + 1, disk_buf);
     ata_read_sector(3, disk_buf);
     ata_write_sector(plba + 2, disk_buf);
-    cmd_print("  stage2 2 sec -> "); print_dec(plba + 1); cmd_print("\n");
+    if (talk) { cmd_print("  stage2 2 sec -> "); print_dec(plba + 1); cmd_print("\n"); }
 
     // --- 3. ядро: сектора 4+ диска -> +3.. раздела (читаем и пишем посекторно) ---
     for (unsigned int i = 0; i < KERNEL_SECTORS; i++) {
         ata_read_sector(4 + i, disk_buf);
         ata_write_sector(plba + 3 + i, disk_buf);
     }
-    cmd_print("  kernel "); print_dec(KERNEL_SECTORS);
-    cmd_print(" sec -> "); print_dec(plba + 3); cmd_print("\n");
+    if (talk) {
+        cmd_print("  kernel "); print_dec(KERNEL_SECTORS);
+        cmd_print(" sec -> "); print_dec(plba + 3); cmd_print("\n");
+    }
 
     // --- 4. Раздел N становится АКТИВНЫМ (флаг 0x80), остальные снимаем ---
     ata_read_sector(0, disk_buf);
@@ -1475,8 +1566,10 @@ void install_do(int n, unsigned int plba) {
     }
     ata_write_sector(0, disk_buf);
 
-    cmd_print("P"); cmd_putchar((char)('0' + n));
-    cmd_print(" marked active. Done.\n");
+    if (talk) {
+        cmd_print("P"); cmd_putchar((char)('0' + n));
+        cmd_print(" marked active. Done.\n");
+    }
 }
 
 // Команда install N [yes]: без yes — только план, с yes — установка
@@ -1494,91 +1587,237 @@ void cmd_install(int n, bool confirm) {
 }
 
 // ===========================================================================
-//  МАСТЕР УСТАНОВКИ — команда setup: установка ОС по шагам
+//  ГРАФИЧЕСКИЙ МАСТЕР УСТАНОВКИ — окно «Installer» (команда setup)
 // ===========================================================================
-//  Мастер печатает вопросы, а ответы вводишь обычной строкой (Enter в конце).
-//  Пока мастер активен, ВСЕ строки идут ему, а не командам (см. run_command).
-//  Глобальные setup_state/setup_part объявлены в начале файла (консоль).
+//  Шаги мастера (inst_state):
+//    0 — выбрать раздел (стрелки/мышь)
+//    1 — ПОДТВЕРЖДЕНИЕ: показываем план и ждём Enter/Install
+//    2 — запись (показывается один кадр «Writing...»)
+//    3 — готово
+//  Правило безопасности то же, что у команды install N: сначала показываем
+//  план, и только после подтверждения пишем. MyFS не трогаем — он живёт
+//  дальше по разделу, а мы пишем лишь зону загрузки.
+//  Мышь: щелчок по строке — выбрать, по кнопке — нажать.
+//  Клавиши: Up/Down — раздел, Tab/Left/Right — кнопка, Enter — нажать,
+//           Esc/F3 — назад (из подтверждения) или закрыть окно.
+bool inst_active = false;                // окно мастера открыто?
+int  inst_state = 0;                     // шаг мастера (см. выше)
+int  inst_row   = 0;                     // строка списка под курсором (0..3)
+int  inst_part  = 0;                     // выбранный раздел 1..4 (0 — нет)
+int  inst_btn   = 0;                     // кнопка: 0 = Install, 1 = Cancel/Close
+unsigned int inst_lba[4];                // LBA разделов из MBR
+unsigned int inst_mb[4];                 // размеры разделов в МБ
+int  inst_fl[4];                         // биты: 1 занят, 2 MyFS, 4 можно ставить, 8 активный
+const char* inst_note = 0;               // замечание мастера (снимается клавишей/щелчком)
 
-// Список разделов для выбора: LBA, размер, активный, есть ли MyFS
-void setup_list() {
-    ata_read_sector(0, disk_buf);        // MBR
-    for (int i = 1; i <= 4; i++) {
-        unsigned char* e = disk_buf + 446 + (i - 1) * 16;
-        if (e[4] == 0) continue;         // пустой слот
-        // Вынимаем данные записи СРАЗУ: буфер ниже перечитается под MyFS
+const int INST_ROW0  = 46;               // y первой строки списка (внутри окна)
+const int INST_ROWH  = 30;               // шаг строк списка
+const int INST_BTN_W = 110;              // ширина кнопки
+const int INST_BTN_H = 26;               // высота кнопки
+
+// Прямоугольник кнопки i (0 = Install, 1 = Cancel) внутри окна мастера
+void inst_btn_rect(int i, int* bx, int* by) {
+    int w = win_wp[APP_INSTALL], h = win_hp[APP_INSTALL];
+    *by = h - INST_BTN_H - 14;
+    *bx = (i == 0) ? (w - INST_BTN_W - 16) : (w - INST_BTN_W * 2 - 26);
+}
+
+// Перечитать таблицу разделов: LBA, размер и флаги (MyFS / активный / годный)
+void inst_scan() {
+    for (int i = 0; i < 4; i++) { inst_lba[i] = 0; inst_mb[i] = 0; inst_fl[i] = 0; }
+    ata_read_sector(0, disk_buf);            // MBR
+    for (int i = 0; i < 4; i++) {
+        unsigned char* e = disk_buf + 446 + i * 16;
+        if (e[4] == 0) continue;             // пустой слот
+        // Данные записи вынимаем СРАЗУ: буфер ещё пригодится под суперблок MyFS
         unsigned int plba  = (unsigned int)e[8]  | ((unsigned int)e[9]  << 8) |
                              ((unsigned int)e[10] << 16) | ((unsigned int)e[11] << 24);
         unsigned int psize = (unsigned int)e[12] | ((unsigned int)e[13] << 8) |
                              ((unsigned int)e[14] << 16) | ((unsigned int)e[15] << 24);
-        unsigned char flag = e[0];
-        // Есть ли на разделе MyFS? Суперблок лежит через PART_RESERVED секторов
-        bool myfs = false;
-        ata_read_sector(plba + PART_RESERVED, disk_buf);
+        inst_lba[i] = plba;
+        inst_mb[i]  = psize / 2048;
+        int fl = 1;                          // слот занят
+        if (e[0] == 0x80) fl |= 8;           // он же активный
+        if (psize >= PART_RESERVED + 3 && KERNEL_SECTORS + 3 <= PART_RESERVED) fl |= 4;
+        disk_buf[0] = 0;                     // чтобы мусор не дал ложный «MyFS»
+        ata_read_sector(plba + PART_RESERVED, disk_buf);   // суперблок MyFS?
         if (disk_buf[0] == 'M' && disk_buf[1] == 'Y' &&
-            disk_buf[2] == 'F' && disk_buf[3] == 'S') myfs = true;
-        ata_read_sector(0, disk_buf);    // вернуть MBR в буфер для след. итерации
-
-        cmd_print("  P"); cmd_putchar((char)('0' + i));
-        cmd_print(" lba="); print_dec(plba);
-        cmd_print(" "); print_dec(psize / 2048); cmd_print("MB");
-        if (flag == 0x80) cmd_print(" ACTIVE");
-        if (myfs) cmd_print(" +MyFS");
-        cmd_print("\n");
+            disk_buf[2] == 'F' && disk_buf[3] == 'S') fl |= 2;
+        ata_read_sector(0, disk_buf);        // вернуть MBR в буфер
+        inst_fl[i] = fl;
     }
 }
 
-// Начать мастер: показать разделы и спросить номер
-void setup_begin() {
-    cmd_print("MyOS Setup Wizard\n");
-    cmd_print("Partitions:\n");
-    setup_list();
-    cmd_print("Install to which one?\n");
-    cmd_print("Type 1-4 (empty = cancel):\n");
-    setup_state = 1;
+// Открыть окно мастера (команда setup)
+void inst_open() {
+    if (inst_active) { win_raise(APP_INSTALL); draw_desktop(); return; }
+    inst_active = true;
+    inst_state  = 0;
+    inst_row    = 0;
+    inst_part   = 0;
+    inst_btn    = 0;
+    inst_note   = 0;
+    inst_scan();
+    win_place(APP_INSTALL, win_w(620), win_h(330));
+    win_raise(APP_INSTALL);
+    draw_desktop();
 }
 
-// Обработать ответ мастера (строка, введённая после Enter)
-void setup_step(const char* line) {
-    const char* p = line;
-    while (*p == ' ') p++;               // пропускаем пробелы
+// Закрыть окно мастера (кнопка Cancel/Close, Esc, красная кнопка)
+void inst_close() {
+    inst_active = false;
+    win_close_app(APP_INSTALL);
+    draw_desktop();
+}
 
-    if (setup_state == 1) {              // --- Шаг 1: номер раздела ---
-        if (*p == 0) {                   // пустая строка — отмена
-            cmd_print("Setup cancelled.\n");
-            setup_state = 0;
+// Одна строка списка: «P1  lba=2048  30608 MB  ACTIVE  MyFS»
+void inst_draw_row(int i, int x, int y, int w, bool sel) {
+    int fl = inst_fl[i];
+    unsigned int col = sel ? C_BLACK : TEXT_COL;
+    if (sel) fill_rect(x, y, w, INST_ROWH - 2, C_WHITE);   // выделение — белая плашка
+    char b[64]; int k = 0;
+    k = sk_str(b, k, "P"); k = sk_num(b, k, (unsigned int)(i + 1)); b[k] = 0;
+    draw_text(x + 10, y + 6, b, col);
+    if (!(fl & 1)) { draw_text(x + 40, y + 6, "(empty slot)", col); return; }
+    k = sk_str(b, 0, "lba="); k = sk_num(b, k, inst_lba[i]);
+    k = sk_str(b, k, "   ");  k = sk_num(b, k, inst_mb[i]); k = sk_str(b, k, " MB");
+    b[k] = 0;
+    draw_text(x + 40, y + 6, b, col);
+    int tx = x + 320;
+    if (fl & 8) { draw_text(tx, y + 6, "ACTIVE", col); tx += 56; }
+    if (fl & 2) { draw_text(tx, y + 6, "MyFS", col);   tx += 48; }
+    if (!(fl & 4)) draw_text(tx, y + 6, "too small", col);
+}
+
+// Нарисовать окно мастера целиком (зовёт композитор draw_app)
+void draw_install() {
+    int x = win_x[APP_INSTALL], y = win_y[APP_INSTALL];
+    int w = win_wp[APP_INSTALL], h = win_hp[APP_INSTALL];
+    draw_window_frame(x, y, w, h, "Installer");
+    int tx = x + 12, ty = y + TITLE_H + 6;
+    draw_text(tx, ty, "MyOS Setup - pick a partition (MyFS files are kept)", TEXT_COL);
+    for (int i = 0; i < 4; i++)
+        inst_draw_row(i, x + 8, y + INST_ROW0 + i * INST_ROWH, w - 16, i == inst_row);
+    // --- сообщения мастера под списком ---
+    int sy = y + INST_ROW0 + 4 * INST_ROWH + 4;
+    dither_over(x + 12, sy, w - 24, 1, C_WHITE, 7);            // тонкая линия
+    char b[96]; int k = 0;
+    if (inst_note) {
+        k = sk_str(b, k, inst_note); b[k] = 0;
+        draw_text(tx, sy + 8, b, TEXT_COL);
+    } else if (inst_state == 0) {
+        draw_text(tx, sy + 8,  "Up/Down or mouse picks a partition.", TEXT_COL);
+        draw_text(tx, sy + 24, "Install shows the plan first - nothing is written yet.", TEXT_COL);
+    } else if (inst_state == 1) {
+        k = sk_str(b, k, "Write to P"); k = sk_num(b, k, (unsigned int)inst_part);
+        k = sk_str(b, k, " (lba=");     k = sk_num(b, k, inst_lba[inst_part - 1]);
+        k = sk_str(b, k, ", ");         k = sk_num(b, k, inst_mb[inst_part - 1]);
+        k = sk_str(b, k, " MB)?"); b[k] = 0;
+        draw_text(tx, sy + 8, b, TEXT_COL);
+        k = 0;
+        k = sk_str(b, k, "Boot area: boot 1 + stage2 2 + kernel ");
+        k = sk_num(b, k, KERNEL_SECTORS);
+        k = sk_str(b, k, " sec. MyFS files stay untouched."); b[k] = 0;
+        draw_text(tx, sy + 24, b, TEXT_COL);
+        draw_text(tx, sy + 40, "Enter = write now, Esc = back", TEXT_COL);
+    } else if (inst_state == 2) {
+        draw_text(tx, sy + 8, "Writing boot area, stage2 and kernel...", TEXT_COL);
+    } else {
+        k = sk_str(b, k, "Done! P"); k = sk_num(b, k, (unsigned int)inst_part);
+        k = sk_str(b, k, " is ACTIVE. Reboot and MyOS boots from it."); b[k] = 0;
+        draw_text(tx, sy + 8, b, TEXT_COL);
+        draw_text(tx, sy + 24, "MyFS files stay untouched.", TEXT_COL);
+    }
+    // --- кнопки: выбранная — белая плашка с чёрным текстом ---
+    for (int i = 0; i < 2; i++) {
+        int bx, by; inst_btn_rect(i, &bx, &by);
+        bx += x; by += y;
+        const char* label = (i == 0) ? "Install" : (inst_state == 3 ? "Close" : "Cancel");
+        int n = 0; while (label[n]) n++;
+        int lx = bx + (INST_BTN_W - n * 8) / 2;
+        if (i == inst_btn) {
+            fill_rect(bx, by, INST_BTN_W, INST_BTN_H, C_WHITE);
+            draw_text(lx, by + 5, label, C_BLACK);
+        } else {
+            draw_rect(bx, by, INST_BTN_W, INST_BTN_H, C_WHITE);
+            draw_text(lx, by + 5, label, TEXT_COL);
+        }
+    }
+}
+
+// Нажали Install: шаг 0 -> «показать план», шаг 1 -> ПИСАТЬ, шаг 3 -> закрыть
+void inst_activate() {
+    if (inst_state == 3) { inst_close(); return; }              // после установки — «Close»
+    if (inst_state == 1) {                                      // подтверждено — ПИШЕМ
+        unsigned int plba, psize;
+        if (!install_check(inst_part, &plba, &psize)) {
+            inst_note = "This partition cannot be used";
+            inst_state = 0;
+            draw_desktop();
             return;
         }
-        int n = 0;
-        while (*p >= '0' && *p <= '9') { // читаем число
-            if (n < 100) n = n * 10 + (*p - '0');   // защита от переполнения
-            p++;
-        }
-        while (*p == ' ') p++;           // хвостовые пробелы не мешают
-        if (*p != 0 || n < 1 || n > 4) {
-            cmd_print("Please type 1-4 (empty = cancel):\n");
-            return;                      // остаёмся на шаге 1
-        }
-        unsigned int plba, psize;
-        if (!install_check(n, &plba, &psize)) {
-            cmd_print("Pick another (empty = cancel):\n");
-            return;                      // причина отказа уже напечатана
-        }
-        setup_part = n;
-        install_plan(n, plba, psize);    // тот же план, что и у install
-        cmd_print("Type 'yes' to install:\n");
-        setup_state = 2;
+        inst_state = 2;                                         // кадр «Writing...»
+        draw_desktop();
+        install_do(inst_part, plba, false);                     // VBR + stage2 + ядро
+        inst_scan();                                            // перечитали ACTIVE
+        inst_state = 3;
+        inst_btn = 1;                                           // дальше логичнее «Close»
+        draw_desktop();
         return;
     }
+    int fl = inst_fl[inst_row];                                 // шаг 0: годен ли раздел?
+    if (!(fl & 1))      inst_note = "That slot is empty - pick another partition";
+    else if (!(fl & 4)) inst_note = "Partition too small for the boot area";
+    else { inst_part = inst_row + 1; inst_state = 1; inst_note = 0; }  // показываем план
+    draw_desktop();
+}
 
-    // --- Шаг 2: подтверждение ---
-    if (str_eq(p, "yes")) {
-        unsigned int plba, psize;
-        setup_state = 0;                 // мастер завершён
-        if (install_check(setup_part, &plba, &psize)) install_do(setup_part, plba);
-    } else {
-        cmd_print("Cancelled. Nothing written.\n");
-        setup_state = 0;
+// Щелчок мышью внутри окна мастера (dx, dy — координаты ВНУТРИ окна)
+void inst_click(int dx, int dy) {
+    if (inst_state == 2) return;                                // идёт запись — не мешаем
+    for (int i = 0; i < 4; i++) {                               // строка списка?
+        int ry = INST_ROW0 + i * INST_ROWH;
+        if (dy >= ry && dy < ry + INST_ROWH - 2) {
+            inst_note = 0;
+            if (inst_state == 1) inst_state = 0;                // сменили раздел — снова выбор
+            inst_row = i;
+            draw_desktop();
+            return;
+        }
+    }
+    for (int i = 0; i < 2; i++) {                               // кнопка?
+        int bx, by; inst_btn_rect(i, &bx, &by);
+        if (dx >= bx && dx < bx + INST_BTN_W && dy >= by && dy < by + INST_BTN_H) {
+            inst_btn = i;
+            if (i == 1) inst_close();                           // Cancel / Close
+            else        inst_activate();                        // Install
+            return;
+        }
+    }
+}
+
+// Клавиши в окне мастера
+void inst_handle_key(int sc) {
+    if (sc == 0xE0) { e0_prefix = true; return; }
+    bool ext = e0_prefix; e0_prefix = false;
+    if (sc & 0x80) return;                                      // отпускания не нужны
+    if (inst_note) { inst_note = 0; draw_desktop(); }           // замечание снимается
+    if (inst_state == 2) return;                                // идёт запись — подождём
+    if (ext) {                                                  // стрелки
+        if (sc == 0x48 && inst_row > 0) {                       // Up
+            inst_row--; if (inst_state == 1) inst_state = 0; draw_desktop();
+        }
+        if (sc == 0x50 && inst_row < 3) {                       // Down
+            inst_row++; if (inst_state == 1) inst_state = 0; draw_desktop();
+        }
+        if (sc == 0x4B || sc == 0x4D) { inst_btn = 1 - inst_btn; draw_desktop(); }  // L/R
+        return;
+    }
+    if (sc == 0x0F) { inst_btn = 1 - inst_btn; draw_desktop(); return; }   // Tab
+    if (sc == 0x1C) { inst_btn = 0; inst_activate(); return; }             // Enter
+    if (sc == 0x01 || sc == SC_F3) {                                       // Esc / F3
+        if (inst_state == 1) { inst_state = 0; draw_desktop(); return; }   // назад
+        inst_close();
     }
 }
 
@@ -1609,8 +1848,6 @@ void read_word(const char** pp, char* out, int max) {
 }
 
 void run_command(const char* line) {
-    // Пока активен мастер установки, ЛЮБАЯ строка — ответ мастеру, а не команда
-    if (setup_state != 0) { setup_step(line); return; }
     if (line[0] == 0) return;            // пустая команда
     if (str_eq(line, "help")) {
         cmd_print("Commands:\n");
@@ -1637,7 +1874,7 @@ void run_command(const char* line) {
     } else if (str_eq(line, "code")) {
         code_open();                         // редактор кода MyC
     } else if (str_eq(line, "clear")) {
-        fill_glass(TXT_X, TXT_Y, TXT_W, TXT_H, 0, C_WHITE, GLASS);  // снять текст, оставить стекло
+        fill_rect(TXT_X, TXT_Y, TXT_W, TXT_H, C_BLACK);        // снять текст
         cur_col = 0; cur_row = 0;
     } else if (str_eq(line, "info")) {
         cmd_print("MyOS v0.1 (build 0)\n");
@@ -1717,7 +1954,7 @@ void run_command(const char* line) {
     } else if (str_eq(line, "install")) {
         cmd_print("Usage: install N [yes]\n");
     } else if (str_eq(line, "setup")) {
-        setup_begin();                       // мастер установки по шагам
+        inst_open();                         // графический мастер установки
     } else if (str_eq(line, "wtest")) {
         cmd_wtest();                         // тест записи: write + read + сверка
     } else if (str_startswith(line, "echo ")) {
@@ -1764,7 +2001,7 @@ void draw_clock() {
         buf[k++] = pm ? 'P' : 'A'; buf[k++] = 'M';
     }
     buf[k] = 0;
-    fill_glass(W - 64, 0, 64, 16, 0, C_WHITE, GLASS);  // стереть старые цифры
+    fill_rect(W - 64, 0, 64, 16, C_BLACK);              // стереть старые цифры
     draw_text(W - 62, 0, buf, TEXT_COL);               // 7 знаков максимум
 }
 
@@ -1780,7 +2017,7 @@ void clock_tick() {
 
 // Меню-бар: чёрная полоса во всю ширину + белая линия-разделитель снизу
 void draw_menubar() {
-    fill_glass(0, 0, W, MB_H, 0, C_WHITE, GLASS);   // полоса (при GLASS=0 — чёрная)
+    fill_rect(0, 0, W, MB_H, C_BLACK);              // полоса меню-бара (сплошная)
     draw_text(6, 0, "MyOS", TEXT_COL);
     for (int x = 0; x < W; x++)                     // тонкая белая линия под полосой
         put_pixel(x, MB_H, C_WHITE);
@@ -1799,57 +2036,43 @@ const char* dock_names[DOCK_N] = { "Terminal", "Files", "Settings", "Tasks", "Co
 
 // Одна иконка: чёрный фон, белая рамка, символ приложения.
 // Выбранная — дополнительно в двойной рамке.
+// --- Иконки дока: картинки 20x20 пикселей (сгенерировал icons_gen.ps1) ---
+#include "icons_data.inc"
+
+// Нарисовать иконку 20x20 из битовой карты: 3 байта на строку,
+// старший бит = САМЫЙ ЛЕВЫЙ пиксель строки.
+void draw_icon20(int x, int y, const unsigned char* bmp, unsigned int color) {
+    for (int j = 0; j < 20; j++) {
+        unsigned int bits = ((unsigned int)bmp[j * 3] << 16) |
+                            ((unsigned int)bmp[j * 3 + 1] << 8) |
+                             (unsigned int)bmp[j * 3 + 2];
+        if (!bits) continue;                       // пустая строка — пропуск
+        for (int i = 0; i < 20; i++)
+            if (bits & (0x800000u >> i)) put_pixel(x + i, y + j, color);
+    }
+}
+
 void draw_dock_icon(int i) {
     int ix = DOCK_X + DOCK_PAD + i * (ICON_SZ + ICON_GAP);
     int iy = DOCK_Y + DOCK_PAD;
-    fill_glass(ix, iy, ICON_SZ, ICON_SZ, 8, C_WHITE, GLASS);   // фон иконки
-    draw_round_rect(ix, iy, ICON_SZ, ICON_SZ, 8, C_WHITE);     // рамка иконки
-    if (i == dock_sel)                                         // рамка выделения вокруг
+    fill_glass(ix, iy, ICON_SZ, ICON_SZ, 8, C_GLASS_ICON, GLASS_ICON);  // подложка
+    draw_round_rect(ix, iy, ICON_SZ, ICON_SZ, 8, C_WHITE);              // рамка
+    if (i == dock_sel)                                                  // выделение
         draw_round_rect(ix - 3, iy - 3, ICON_SZ + 6, ICON_SZ + 6, 10, C_WHITE);
-    if (i == 0) {                       // Terminal: «>_» — приглашение командной строки
-        draw_char(ix + 7, iy + 6, '>', TEXT_COL);
-        draw_char(ix + 13, iy + 6, '_', TEXT_COL);
-    } else if (i == 1) {                // Files: папка — проводник
-        draw_rect(ix + 6, iy + 12, 16, 9, TEXT_COL);   // тело папки
-        draw_rect(ix + 6, iy + 8, 8, 4, TEXT_COL);     // ярлычок папки
-    } else if (i == 2) {                // Settings: три ползунка — настройки
-        draw_line(ix + 7, iy + 9, ix + 21, iy + 9, TEXT_COL);
-        draw_line(ix + 7, iy + 14, ix + 21, iy + 14, TEXT_COL);
-        draw_line(ix + 7, iy + 19, ix + 21, iy + 19, TEXT_COL);
-        fill_rect(ix + 9, iy + 7, 4, 4, TEXT_COL);     // бегунки ползунков
-        fill_rect(ix + 15, iy + 12, 4, 4, TEXT_COL);
-        fill_rect(ix + 12, iy + 17, 4, 4, TEXT_COL);
-    } else if (i == 3) {                // Tasks: столбики — диспетчер задач
-        fill_rect(ix + 7, iy + 15, 4, 7, TEXT_COL);
-        fill_rect(ix + 13, iy + 11, 4, 11, TEXT_COL);
-        fill_rect(ix + 19, iy + 7, 4, 15, TEXT_COL);
-        draw_line(ix + 6, iy + 22, ix + 23, iy + 22, TEXT_COL);   // ось графика
-    } else if (i == 4) {                // Code: «</>» — редактор кода
-        draw_char(ix + 3, iy + 6, '<', TEXT_COL);
-        draw_char(ix + 10, iy + 6, '/', TEXT_COL);
-        draw_char(ix + 17, iy + 6, '>', TEXT_COL);
-    } else if (i == 5) {                // Game: треугольник «Play»
-        for (int r = 0; r < 14; r++) {
-            int w = r;
-            if (14 - r < w) w = 14 - r;
-            draw_line(ix + 9, iy + 7 + r, ix + 9 + w * 2, iy + 7 + r, TEXT_COL);
-        }
-    } else {                            // About: «?» — справка о системе
-        draw_char(ix + 10, iy + 6, '?', TEXT_COL);
-    }
+    draw_icon20(ix + 4, iy + 4, dock_icons[i], TEXT_COL);               // картинка
 }
 
 // Подпись выбранного приложения — по центру экрана, над доком
 void draw_dock_label() {
-    fill_glass(0, DOCK_Y - 18, W, 16, 0, C_WHITE, GLASS);  // стереть старую подпись
+    erase_to_wallpaper(0, DOCK_Y - 18, W, 16);             // стереть старую подпись
     const char* s = dock_names[dock_sel];
     int n = 0; while (s[n]) n++;                           // длина названия
     draw_text((W - n * 8) / 2, DOCK_Y - 18, s, TEXT_COL);  // центрируем
 }
 
-// Весь док: плашка + иконки + подпись
+// Весь док: стеклянная плашка + иконки + подпись
 void draw_dock() {
-    fill_glass(DOCK_X, DOCK_Y, DOCK_W, DOCK_H, 12, C_WHITE, GLASS);  // плашка дока
+    fill_glass(DOCK_X, DOCK_Y, DOCK_W, DOCK_H, 12, C_GLASS_DOCK, GLASS_DOCK);
     draw_round_rect(DOCK_X, DOCK_Y, DOCK_W, DOCK_H, 12, C_WHITE);    // её рамка
     for (int i = 0; i < DOCK_N; i++) draw_dock_icon(i);
     draw_dock_label();
@@ -2450,7 +2673,7 @@ void tasks_draw_uptime() {
     k = sk_num(b, k, (unsigned int)ss);
     b[k] = 0;
     int x = tkx + 10, y = tky + TITLE_H + 8;
-    fill_glass(x - 2, y - 1, 150, 16, 0, C_WHITE, GLASS);   // стереть старую строку
+    fill_rect(x - 2, y - 1, 150, 16, C_BLACK);              // стереть старую строку
     draw_text(x, y, b, TEXT_COL);
 }
 
@@ -2732,7 +2955,7 @@ void draw_game() {
 }
 
 // Перерисовать поле игры, не забыв про курсор (он может висеть над окном)
-void game_redraw() { cursor_hide(); draw_game(); cursor_show(); }
+void game_redraw() { cursor_hide(); draw_desktop(); cursor_show(); }
 
 // Шаг игры (вызывается из главного цикла, когда нажатий нет)
 void game_tick() {
@@ -3554,6 +3777,7 @@ bool app_is_open(int a) {
     if (a == APP_CODE)  return code_active;
     if (a == APP_GAME)  return game_active;
     if (a == APP_ABOUT) return about_active;
+    if (a == APP_INSTALL) return inst_active;
     return false;
 }
 
@@ -3566,16 +3790,21 @@ void draw_app(int a) {
     else if (a == APP_CODE)  draw_code();
     else if (a == APP_GAME)  draw_game();
     else if (a == APP_ABOUT) { ABT_X = win_x[a]; ABT_Y = win_y[a]; draw_about(); }
+    else if (a == APP_INSTALL) draw_install();
 }
 
-// Рабочий стол целиком: обои + меню-бар + окна по слоям + док (док поверх)
+// Рабочий стол целиком: обои + меню-бар + окна по слоям + док (док поверх).
+// Это ЕДИНСТВЕННОЕ место, где включается компоновка (comp_full): все окна и
+// док рисуются полупрозрачными поверх уже готового кадра.
 void draw_desktop() {
+    comp_full = true;                        // рисуем полный кадр — стекло можно
     fill_wallpaper();
     draw_menubar();
     for (int z = 1; z <= win_ztop; z++)
         for (int a = 0; a < APP_N; a++)
             if (app_is_open(a) && win_z[a] == z) draw_app(a);
     draw_dock();
+    comp_full = false;
 }
 
 // Какая иконка дока под точкой (x,y); -1 — ни одна
@@ -3625,6 +3854,7 @@ void win_close(int a) {
     else if (a == APP_CODE)  code_active = false;
     else if (a == APP_GAME)  game_active = false;
     else if (a == APP_ABOUT) about_active = false;
+    else if (a == APP_INSTALL) inst_active = false;
     win_close_app(a);
     draw_desktop();
 }
@@ -3671,11 +3901,11 @@ void mouse_handle() {
 
     // --- подсветка иконки дока под курсором ---
     int hov = dock_hit(mouse_x, mouse_y);
-    if (hov >= 0 && hov != dock_sel) { dock_sel = hov; draw_dock(); }
+    if (hov >= 0 && hov != dock_sel) { dock_sel = hov; draw_desktop(); }  // док стеклянный — нужен полный кадр
 
     if (!(press & 1)) return;                  // дальше — только щелчок левой кнопкой
 
-    if (hov >= 0) { dock_sel = hov; draw_dock(); dock_launch(hov); return; }
+    if (hov >= 0) { dock_sel = hov; draw_desktop(); dock_launch(hov); return; }
 
     int a = win_hit(mouse_x, mouse_y);
     if (a < 0) return;
@@ -3691,7 +3921,9 @@ void mouse_handle() {
         drag = a;
         drag_dx = dx;
         drag_dy = dy;
+        return;
     }
+    if (a == APP_INSTALL) inst_click(dx, dy);  // мастер установки: строки и кнопки
 }
 
 // ===========================================================================
@@ -3748,6 +3980,7 @@ extern "C" void kernel_main() {
         else if (f == APP_FILES && files_active) files_handle_key(sc);
         else if (f == APP_SET   && set_active)   set_handle_key(sc);
         else if (f == APP_ABOUT && about_active) about_handle_key(sc);
+        else if (f == APP_INSTALL && inst_active) inst_handle_key(sc);  // мастер установки
         else if (f == APP_CMD   && cmd_active)   cmd_handle_key(sc);
         else                                     desktop_handle_key(sc);
         cursor_show();
