@@ -78,17 +78,11 @@ void draw_desktop() {
     comp_full = true;                        // рисуем полный кадр — стекло можно
     fill_wallpaper();
     draw_menubar();
-    sys_debug("M1");                         // ОТЛАДКА: после меню-бара
     for (int z = 1; z <= win_ztop; z++)
         for (int a = 0; a < APP_N; a++)
-            if (app_is_open(a) && win_z[a] == z) {
-                sys_debug("A>");             // ОТЛАДКА: каждое окно
-                draw_app(a);
-                sys_debug("A<");
-            }
+            if (app_is_open(a) && win_z[a] == z) draw_app(a);
     draw_dock();
     comp_full = false;
-    sys_debug("DK");                         // ОТЛАДКА: конец кадра
 }
 
 // Какая иконка дока под точкой (x,y); -1 — ни одна
@@ -106,6 +100,7 @@ int dock_hit(int x, int y) {
 // Запустить приложение по номеру иконки дока. Если окно уже открыто —
 // просто поднять его (как в настоящей док-панели), а не открывать заново.
 void dock_launch(int i) {
+    if (i < 0 || i >= DOCK_N) return;            // ничего не выбрано (курсор ушёл с дока)
     int a = i;                                   // номера иконок = номера приложений
     if (a >= 0 && a < APP_N && app_is_open(a)) { win_raise(a); draw_desktop(); return; }
     if      (i == 0) cmd_open();
@@ -191,6 +186,7 @@ void mouse_handle() {
     // экран мигать и тормозить (окна до дока всё равно не достают).
     int hov = dock_hit(mouse_x, mouse_y);
     if (hov >= 0 && hov != dock_sel) { dock_sel = hov; draw_dock_area(); }
+    else if (hov < 0 && dock_sel >= 0) { dock_sel = -1; draw_dock_area(); }  // курсор ушёл — подсветку/подпись снять
 
     if (!(press & 1)) return;                  // дальше — только щелчок левой кнопкой
 

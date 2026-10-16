@@ -132,7 +132,6 @@ void cmd_print(const char* s) { while (*s) cmd_putchar(*s++); }
 // Нарисовать окно консоли заново по теневой копии текста
 void console_repaint() {
     draw_console_window();
-    sys_debug("C1");                         // ОТЛАДКА: фазы консоли
     for (int r = 0; r < ROWS && r < CG_ROWS; r++) {
         int y = TXT_Y + r * 16;
         for (int i = 0; i < COLS && i < CG_COLS; i++) {
@@ -140,7 +139,6 @@ void console_repaint() {
             if (c && c != ' ') draw_char(TXT_X + i * 8, y, c, TEXT_COL);
         }
     }
-    sys_debug("C2");
 }
 
 // Стереть символ слева от курсора (Backspace) — вернуть «стекло» на место

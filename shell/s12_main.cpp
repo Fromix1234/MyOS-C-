@@ -72,6 +72,12 @@ extern "C" __attribute__((section(".text.entry"))) void shell_main() {
             cursor_show();
             continue;
         }
+        if (sc == SC_F2) {                           // F2 — Activities глобально:
+            if (overview_active) overview_close();   //   работает из любого окна,
+            else overview_open();                    //   клавиатура grab-ается обзором
+            cursor_show();
+            continue;
+        }
         if (overview_active) {                       // экран Activities ловит всё
             overview_handle_key(sc);
             cursor_show();

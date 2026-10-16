@@ -16,3 +16,11 @@ disk.img.sha256
 
 # --- Папка со скриншотами пользователя ---
 Screenshorts/
+
+# --- Диагностические и рабочие файлы сеанса (не публикуем) ---
+_*
+probe_*.ps1
+diffimg.ps1
+regression_*.log
+nt_*.png
+c_*.png

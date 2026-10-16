@@ -65,8 +65,8 @@ Start-Sleep -Milliseconds 1200
 Shot 'mt3'                                   # four windows at once
 
 DragTo 400 153 600 400                       # drag the Code window by its title bar
-Shot 'mt4'                                   # Code moved to (400,198)
-Click 411 207                                # its red button - close
+Shot 'mt4'                                   # Code slides down to the stop (WM keeps it above the dock, top ~y=164)
+Click 415 177                                # its red button (measured after the drag)
 Start-Sleep -Milliseconds 900
 Shot 'mt5'                                   # Code gone, others remain
 

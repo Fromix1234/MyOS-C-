@@ -72,17 +72,20 @@ void game_open() {
     draw_desktop();
 }
 
-// Нарисовать окно игры целиком
-void draw_game() {
-    game_layout();
-    draw_window_frame(gwx, gwy, gww, gwh, "Snake");
+// Поле игры (счёт, рамка поля, еда и змейка) — без рамки окна.
+// Используется и полным кадром (draw_game), и быстрым тик-перерисовщиком:
+// игра шагает каждые ~140 мс, и полный кадр (обои пер-пиксельно + все окна)
+// на каждый шаг — это секунды простоя на перерисовку. Окно не двигается,
+// поэтому достаточно перерисовать его внутренность.
+static void draw_game_field() {
     int tx = gwx + 10, ty = gwy + TITLE_H + 6;
     char sc[48]; int k = sk_str(sc, 0, "Score: "); k = sk_num(sc, k, (unsigned int)gscore);
     k = sk_str(sc, k, "   Length: "); k = sk_num(sc, k, (unsigned int)gslen);
     sc[k] = 0;
+    // строка счёта очищается «стеклом тела окна» (alpha 256 = плотно):
+    fill_glass(gwx + 8, ty - 2, gww - 16, 16, 0, C_GLASS_BODY, 256);
     draw_text(tx, ty, sc, TEXT_COL);
     fill_rect(gfx, gfy, gcols * G_CELL, grows * G_CELL, C_BLACK);   // чистое поле
-    sys_debug("G1");                         // ОТЛАДКА: фазы игры
     draw_rect(gfx - 1, gfy - 1, gcols * G_CELL + 2, grows * G_CELL + 2, TEXT_COL);
     fill_rect(gfx + gfood_x * G_CELL + 3, gfy + gfood_y * G_CELL + 3,   // еда
               G_CELL - 6, G_CELL - 6, TEXT_COL);
@@ -99,13 +102,21 @@ void draw_game() {
         draw_text(px + (pw - 9 * 8) / 2, py + 4, "GAME OVER", TEXT_COL);
         draw_text(px + (pw - 28 * 8) / 2, py + 22, "Enter - restart  Esc - exit", TEXT_COL);
     } else {
+        fill_glass(gwx + 8, gwy + gwh - 22, gww - 16, 16, 0, C_GLASS_BODY, 256);
         draw_text(tx, gwy + gwh - 20, "Arrows - move   Esc - exit", TEXT_COL);
     }
-    sys_debug("G2");
 }
 
-// Перерисовать поле игры, не забыв про курсор (он может висеть над окном)
-void game_redraw() { cursor_hide(); draw_desktop(); cursor_show(); }
+// Нарисовать окно игры целиком
+void draw_game() {
+    game_layout();
+    draw_window_frame(gwx, gwy, gww, gwh, "Snake");
+    draw_game_field();
+}
+
+// Перерисовать только внутренность окна игры (поле, счёт, подсказка):
+// на каждый такт полный кадр не нужен — обои уже под окном не меняются.
+void game_redraw() { cursor_hide(); draw_game_field(); cursor_show(); }
 
 // Шаг игры (вызывается из главного цикла, когда нажатий нет)
 void game_tick() {

@@ -157,6 +157,7 @@ void draw_dock_icon(int i) {
 // Подпись выбранного приложения — стеклянная «таблетка» над доком
 void draw_dock_label() {
     erase_to_wallpaper(0, DOCK_Y - 22, W, 20);             // стереть старую подпись
+    if (dock_sel < 0) return;                              // курсор вне дока — подписи нет
     const char* s = dock_names[dock_sel];
     int n = 0; while (s[n]) n++;                           // длина названия
     int wpx = n * 8 + 24;                                  // ширина таблетки

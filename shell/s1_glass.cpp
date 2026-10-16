@@ -130,29 +130,71 @@ void draw_round_rect(int x, int y, int w, int h, int r, unsigned int color) {
 // (небо, звёзды, луна, три слоя хребтов) — пишем прямо в видеопамять строкой:
 // сначала получаем RGB чистой функцией wallpaper_pixel, затем кодируем
 // под формат экрана (VESA мог выдать 24 или 32 бита и любой порядок каналов).
+// ===========================================================
+//  Быстрая заливка обоев: КОМПОЗИТНЫЙ рендер пейзажа.
+//  Чистая wallpaper_pixel() в каждом пикселе гоняет целочисленный
+//  рельеф «с нуля» — на 1024x768 это миллионы делений, и кадр
+//  занимает секунды (оболочка начинает «мигать» посреди отрисовки).
+//  Поэтому рисуем по частям:
+//    1) рельеф трёх хребтов считаем ОДИН РАЗ в таблицы по колонкам
+//       (rw_top: на каждый x — строка-вершина слоя);
+//    2) тела хребтов заливаем колонками через fill_rect — тут уже
+//       чистый rep stosl без математики;
+//    3) небо с звёздами и луной — только для пикселей, которые видны.
+//  Результат тот же, что wallpaper_pixel, но в разы быстрее.
+// ===========================================================
+#define RW_MAXW 1920
+static int rw_top[3][RW_MAXW];           // вершины трёх хребтов по колонкам
+static int rw_usew = 0, rw_useh = 0;     // под какой экран таблицы
+
+static void wallpaper_precompute() {
+    rw_usew = W; rw_useh = H;
+    if (rw_usew > RW_MAXW) rw_usew = RW_MAXW;
+    for (int x = 0; x < rw_usew; x++) {
+        rw_top[0][x] = ridge_at(x, 0);
+        rw_top[1][x] = ridge_at(x, 1);
+        rw_top[2][x] = ridge_at(x, 2);
+    }
+}
+
 void fill_wallpaper() {
+    if (rw_usew != W || rw_useh != H) wallpaper_precompute();
     int n = FB_BPP / 8;
-    sys_debug("W0");                          // ОТЛАДКА: фазы заливки обоев
-    for (int y = 0; y < H; y++) {
-        if (y == 128) sys_debug("W1");
-        if (y == 256) sys_debug("W2");
-        if (y == 384) sys_debug("W3");
-        if (y == 512) sys_debug("W4");
-        if (y == 640) sys_debug("W5");
-        unsigned char* row = fb + y * FB_PITCH;
+
+    // --- небо: колонками от 0 до вершины дальнего хребта (звёзды, луна) ---
+    for (int x = 0; x < W; x++) {
+        int skyend = rw_top[0][x];
+        if (skyend > H) skyend = H;
+        if (skyend <= 0) continue;
+        for (int y = 0; y < skyend; y++) {
+            unsigned int c = sky_color(y);
+            if (y < (H * 48) / 100) {
+                unsigned int st = star_color(x, y);
+                if (st) c = st;
+            }
+            unsigned int m = moon_color(x, y, c);
+            if (m) c = m;
+            unsigned char* p = fb + y * FB_PITCH + x * n;
+            unsigned int v = encode_color(c);
+            if (n == 4) *(volatile unsigned int*)p = v;
+            else { p[0] = (unsigned char)(v & 0xFF); p[1] = (unsigned char)((v >> 8) & 0xFF); p[2] = (unsigned char)((v >> 16) & 0xFF); }
+        }
+    }
+
+    // --- тела трёх хребтов: колонками (дальний первым, ближний последним) ---
+    static const unsigned int bod[3] = { RW_FAR, RW_MID, RW_NEAR };
+    static const unsigned int edg[3] = { RW_FAR_E, RW_MID_E, RW_NEAR_E };
+    for (int layer = 0; layer < 3; layer++) {
         for (int x = 0; x < W; x++) {
-            unsigned int v = encode_color(wallpaper_pixel(x, y));
-            if (n == 4) {
-                *(volatile unsigned int*)(row + x * 4) = v;
-            } else {
-                unsigned char* p = row + x * 3;
-                p[0] = (unsigned char)(v & 0xFF);
-                p[1] = (unsigned char)((v >> 8) & 0xFF);
-                p[2] = (unsigned char)((v >> 16) & 0xFF);
+            int t = rw_top[layer][x];
+            if (t < 0) t = 0;
+            if (t < H) {
+                fill_rect(x, t, 1, H - t, bod[layer]);             // тело одним stosl
+                put_pixel(x, t, edg[layer]);                        // блик силуэта
+                if (t + 1 < H) put_pixel(x, t + 1, edg[layer]);
             }
         }
     }
-    sys_debug("W6");
 }
 
 // ===========================================================================
@@ -233,10 +275,8 @@ bool g_frame_focus = true;
 void draw_window_frame(int x, int y, int w, int h, const char* title) {
     // 1. тело окна — почти чёрное стекло
     fill_glass(x, y, w, h, WIN_R, C_GLASS_BODY, GLASS);
-    sys_debug("FB");                         // ОТЛАДКА: фазы рамки окна
     // 2. шапка — светлее и прозрачнее тела
     fill_glass(x + 1, y + 1, w - 2, TITLE_H - 1, WIN_R - 1, C_GLASS_TITLE, GLASS_TITLE);
-    sys_debug("FH");
     // 3. контур: в фокусе светлый, вне фокуса тусклый
     unsigned int edge = g_frame_focus ? C_EDGE_F : C_EDGE;
     draw_round_rect(x, y, w, h, WIN_R, edge);
@@ -264,7 +304,6 @@ void draw_window_frame(int x, int y, int w, int h, const char* title) {
         dither_over(x + 4, y + h + 1, w - 8, 1, C_BLACK, 6);
         dither_over(x + 8, y + h + 2, w - 16, 1, C_BLACK, 3);
     }
-    sys_debug("FS");
 }
 
 // Окно консоли — просто частный случай общей функции

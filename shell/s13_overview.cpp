@@ -64,8 +64,7 @@ void draw_overview() {
     comp_full = true;
     fill_wallpaper();                                    // свежие обои под кадром
     draw_menubar();
-    fill_glass(0, MB_H, W, H - MB_H, 0, C_BLACK, 130);   // «занавес» поверх обоев
-    dither_over(0, MB_H, W, H - MB_H, C_BLACK, 5);       // и чуть плотнее точечно
+    fill_glass(0, MB_H, W, H - MB_H, 0, C_BLACK, 150);   // «занавес» поверх обоев
 
     // --- строка поиска (стеклянная «пилюля» с лупой) ---
     int sx = (W - ov_sw) / 2;
@@ -115,8 +114,12 @@ void draw_overview() {
 }
 
 // Открыть/закрыть обзор. При входе клавиатура переносится на обзор
-// (win_focus = -1 «рабочий стол»), при выходе — честно перерисовываем стол.
+// (win_focus = -1 «рабочий стол»), прежний фокус запоминается и
+// восстанавливается при выходе (игра продолжает жить после F2).
+static int ov_prev_focus = -1;
+
 void overview_open() {
+    ov_prev_focus = win_focus;               // кому вернуть фокус
     overview_active = true;
     ov_sel = 0; ov_qlen = 0; ov_query[0] = 0;
     win_focus = -1;
@@ -125,7 +128,10 @@ void overview_open() {
 
 void overview_close() {
     overview_active = false;
-    win_focus = -1;
+    if (ov_prev_focus >= 0 && app_is_open(ov_prev_focus))   // окно ещё живо?
+        win_focus = ov_prev_focus;
+    else
+        win_focus = -1;
     draw_desktop();
 }
 
