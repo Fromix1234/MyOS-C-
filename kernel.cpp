@@ -184,6 +184,7 @@ void draw_line(int x1, int y1, int x2, int y2, unsigned int color) {
 //  32..126, каждый = 16 байт = 16 строк. В одном байте — ряд из 8 пикселей:
 //  бит 7 = левый пиксель, бит 0 = правый. Бит=1 -> ставим пиксель.
 #include "font_data.inc"
+#include "user_demo_data.inc"            // программа ring 3 (собрал build.ps1)
 
 // Нарисовать ОДИН символ в точке (x, y)
 void draw_char(int x, int y, char c, unsigned int color) {
@@ -268,42 +269,61 @@ void fill_glass(int x, int y, int w, int h, int r, unsigned int color, int alpha
     int a = comp_full ? alpha : 256;              // вне компоновки — плотно
     if (a < 0) a = 0;
     if (a > 256) a = 256;
-    unsigned int ca = encode_color(color);
+    int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;   // обрезаем по экрану ОДИН раз
+    int x1 = x + w,         y1 = y + h;
+    if (x1 > W) x1 = W;
+    if (y1 > H) y1 = H;
+    if (x0 >= x1 || y0 >= y1) return;
+
+    unsigned int ca = encode_color(color);        // цвет сразу в формате экрана
     int ia = 256 - a;
+    if (FB_BPP == 32 && FB_GPOS == 8) {
+        // --- быстрый путь. Хитрость: байты 0 и 2 (красный и синий) смешиваются
+        // ОДНОЙ парой умножений, зелёный (байт 1) — второй. Каждая пара живёт в
+        // своих 16 битах (максимум 255*256 = 0xFF00) и соседям не мешает.
+        unsigned int cs_rb = ca & 0x00FF00FF;
+        unsigned int cs_g  = ca & 0x0000FF00;
+        for (int py = y0; py < y1; py++) {
+            int j = py - y;
+            unsigned int* row = (unsigned int*)(fb + py * FB_PITCH);
+            for (int px = x0; px < x1; px++) {
+                int i = px - x;
+                if (r > 0 && (i < r || i >= w - r) && (j < r || j >= h - r)) {
+                    int cx = (i < r) ? r : w - 1 - r;          // центр дуги угла
+                    int cy = (j < r) ? r : h - 1 - r;
+                    int ex = i - cx, ey = j - cy;
+                    if (ex * ex + ey * ey > r * r) continue;   // вне дуги
+                }
+                unsigned int old = row[px];
+                row[px] = ((((old & 0x00FF00FF) * a + cs_rb * ia) >> 8) & 0x00FF00FF)
+                        | ((((old & 0x0000FF00) * a + cs_g  * ia) >> 8) & 0x0000FF00);
+            }
+        }
+        return;
+    }
+    // --- общий путь (24 бита и необычные форматы): по каналам ---
     int rp = FB_RPOS, gp = FB_GPOS, bp = FB_BPOS, n = FB_BPP / 8;
     int cr = (ca >> rp) & 0xFF, cg = (ca >> gp) & 0xFF, cb = (ca >> bp) & 0xFF;
-    for (int j = 0; j < h; j++) {
-        int py = y + j;
-        if (py < 0 || py >= H) continue;
+    for (int py = y0; py < y1; py++) {
+        int j = py - y;
         unsigned char* row = fb + py * FB_PITCH;
-        for (int i = 0; i < w; i++) {
-            if (r > 0) {                          // скругление углов
-                int cx = -1, cy = -1;
-                if (i < r && j < r)                { cx = r;         cy = r; }
-                else if (i >= w - r && j < r)      { cx = w - 1 - r; cy = r; }
-                else if (i < r && j >= h - r)      { cx = r;         cy = h - 1 - r; }
-                else if (i >= w - r && j >= h - r) { cx = w - 1 - r; cy = h - 1 - r; }
-                if (cx >= 0) {
-                    int dx = i - cx, dy = j - cy;
-                    if (dx * dx + dy * dy > r * r) continue;   // вне дуги
-                }
+        for (int px = x0; px < x1; px++) {
+            int i = px - x;
+            if (r > 0 && (i < r || i >= w - r) && (j < r || j >= h - r)) {
+                int cx = (i < r) ? r : w - 1 - r;
+                int cy = (j < r) ? r : h - 1 - r;
+                int ex = i - cx, ey = j - cy;
+                if (ex * ex + ey * ey > r * r) continue;
             }
-            int px = x + i;
-            if (px < 0 || px >= W) continue;
             unsigned char* p = row + px * n;
-            unsigned int old;
-            if (FB_BPP == 32) old = *(volatile unsigned int*)p;
-            else old = (unsigned int)p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16);
+            unsigned int old = (unsigned int)p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16);
             int orr = (old >> rp) & 0xFF, og = (old >> gp) & 0xFF, ob = (old >> bp) & 0xFF;
             unsigned int nv = (unsigned int)(((cr * a + orr * ia) >> 8) << rp)
                             | (unsigned int)(((cg * a + og * ia) >> 8) << gp)
                             | (unsigned int)(((cb * a + ob * ia) >> 8) << bp);
-            if (FB_BPP == 32) *(volatile unsigned int*)p = nv;
-            else {
-                p[0] = (unsigned char)(nv & 0xFF);
-                p[1] = (unsigned char)((nv >> 8) & 0xFF);
-                p[2] = (unsigned char)((nv >> 16) & 0xFF);
-            }
+            p[0] = (unsigned char)(nv & 0xFF);
+            p[1] = (unsigned char)((nv >> 8) & 0xFF);
+            p[2] = (unsigned char)((nv >> 16) & 0xFF);
         }
     }
 }
@@ -451,6 +471,7 @@ void draw_menubar();
 int  boot_partition(unsigned short* out_lba);
 void game_open();                        // мини-игра «Змейка»
 void code_open();                        // редактор кода MyC
+bool user_start(const unsigned char* img, unsigned int len);   // программа в ring 3
 void win_place(int a, int w, int h);     // оконный менеджер: поставить окно
 void win_raise(int a);                   // поднять окно наверх (и дать фокус)
 void dock_launch(int i);                 // запуск/подъём приложения из дока
@@ -1868,6 +1889,7 @@ void run_command(const char* line) {
         cmd_print("  play\n");
         cmd_print("  code\n");
         cmd_print("  wtest\n");
+        cmd_print("  ring3\n");
         cmd_print("  Up/Dn = history\n");
     } else if (str_eq(line, "play")) {
         game_open();                         // мини-игра «Змейка»
@@ -1955,6 +1977,9 @@ void run_command(const char* line) {
         cmd_print("Usage: install N [yes]\n");
     } else if (str_eq(line, "setup")) {
         inst_open();                         // графический мастер установки
+    } else if (str_eq(line, "ring3")) {
+        if (user_start(user_demo, user_demo_len))   // программа в ring 3 (отдельный бинарник)
+            draw_desktop();                  // стереть её картинку, вернуть рабочий стол
     } else if (str_eq(line, "wtest")) {
         cmd_wtest();                         // тест записи: write + read + сверка
     } else if (str_startswith(line, "echo ")) {
@@ -2076,6 +2101,17 @@ void draw_dock() {
     draw_round_rect(DOCK_X, DOCK_Y, DOCK_W, DOCK_H, 12, C_WHITE);    // её рамка
     for (int i = 0; i < DOCK_N; i++) draw_dock_icon(i);
     draw_dock_label();
+}
+
+// Перерисовать ТОЛЬКО док (плашку и подпись). Окна до дока не достают — их
+// положение ограничено сверху, поэтому под доком всегда обои, и стереть его
+// область «до обоев» безопасно. Нужно для подсветки иконок: полный кадр на
+// каждое движение мыши не нужен — из-за него экран мерцал и тормозил.
+void draw_dock_area() {
+    erase_to_wallpaper(0, DOCK_Y - 20, W, H - (DOCK_Y - 20));
+    comp_full = true;                        // док рисуем «стеклом», как в кадре
+    draw_dock();
+    comp_full = false;
 }
 
 // Рабочий стол целиком, с нуля: обои + меню-бар + окна (по слоям) + док.
@@ -3739,11 +3775,11 @@ void desktop_handle_key(int sc) {
     if (ext) {                                       // расширенные клавиши
         if (sc == 0x4B && dock_sel > 0) {            // Left  — влево по доку
             dock_sel--;
-            draw_dock();
+            draw_dock_area();                        // только док, а не весь экран
         }
         if (sc == 0x4D && dock_sel < DOCK_N - 1) {   // Right — вправо по доку
             dock_sel++;
-            draw_dock();
+            draw_dock_area();
         }
         return;
     }
@@ -3900,12 +3936,15 @@ void mouse_handle() {
     }
 
     // --- подсветка иконки дока под курсором ---
+    // Перерисовываем ТОЛЬКО док: полный кадр на каждое движение мыши заставлял
+    // экран мигать и тормозить (окна до дока всё равно не достают).
     int hov = dock_hit(mouse_x, mouse_y);
-    if (hov >= 0 && hov != dock_sel) { dock_sel = hov; draw_desktop(); }  // док стеклянный — нужен полный кадр
+    if (hov >= 0 && hov != dock_sel) { dock_sel = hov; draw_dock_area(); }
 
     if (!(press & 1)) return;                  // дальше — только щелчок левой кнопкой
 
-    if (hov >= 0) { dock_sel = hov; draw_desktop(); dock_launch(hov); return; }
+    // Один полный кадр на клик: его нарисует сам запуск (открытие или подъём окна)
+    if (hov >= 0) { dock_sel = hov; dock_launch(hov); return; }
 
     int a = win_hit(mouse_x, mouse_y);
     if (a < 0) return;
@@ -3927,10 +3966,339 @@ void mouse_handle() {
 }
 
 // ===========================================================================
+//  РЕЖИМ ПОЛЬЗОВАТЕЛЯ (ring 3) — КАК В UBUNTU: ЯДРО И ПРОГРАММЫ РАЗДЕЛЕНЫ
+// ===========================================================================
+//  Принцип Linux: в ring 0 (ядро) лежит только то, что обязано трогать
+//  железо; всё остальное — обычные программы в ring 3, и с ядром они
+//  говорят ТОЛЬКО через системные вызовы (int 0x80: eax — номер,
+//  ebx/ecx/edx — аргументы; ответ приходит в eax).
+//
+//  Что для этого нужно (сделано ниже):
+//    * страницы памяти по 4 МБ (PSE): 0..4 МБ — ядро, 4..8 МБ — программы;
+//    * видеопамять отображена и программам (как /dev/fb0 в Linux):
+//      рисовать можно напрямую, пиксель стоит дёшево;
+//    * GDT: сегменты ring 0 (0x08/0x10) и ring 3 (0x1B/0x23) + TSS —
+//      в TSS процессор смотрит, какой стек ядра взять при входе в ядро;
+//    * IDT: шлюз int 0x80 (доступен программам) и ловушки ошибок CPU;
+//    * сама программа — ОТДЕЛЬНЫЙ бинарник (user_demo.asm): ядро копирует
+//      его в 4..8 МБ и уходит туда через iret; выход — сисколл EXIT.
+//
+//  Наши системные вызовы:
+//    0 EXIT  — вернуться в ядро          3 TICKS — миллисекунды с запуска
+//    1 KEY   — сканкод клавиши или -1    5 FB    — структура видеопамяти
+//    2 MOUSE — x, y, кнопка              6 PRINT — печать в консоль ядра
+// ===========================================================================
+
+#define PTE_P    0x1                        // страница присутствует
+#define PTE_RW   0x2                        // можно писать
+#define PTE_USER 0x4                        // доступна ring 3
+#define PTE_PS   0x80                       // большая страница — 4 МБ
+
+#define USER_BASE 0x00400000u               // 4 МБ: сюда грузим программу
+#define USER_SIZE 0x00400000u               // 4 МБ: сколько ей отдаём
+
+// Структура «где видеопамять» — её заполняет ядро по вызову SYS_FB
+struct sys_fb_t { unsigned int addr; int w, h, bpp, pitch; };
+
+// Каталог страниц: 1024 записи (по 4 МБ каждая). Выровнен на 4096 — так
+// требует процессор для регистра CR3.
+unsigned int page_dir[1024] __attribute__((aligned(4096)));
+
+// TSS — «шпаргалка» процессора: отсюда он берёт стек ядра (ss0/esp0),
+// когда программа из ring 3 входит в ядро (int 0x80). Поля обязаны идти
+// строго по порядку, размер структуры — ровно 104 байта.
+struct tss_t {
+    unsigned int prev, esp0, ss0, esp1, ss1, esp2, ss2;
+    unsigned int cr3, eip, eflags, eax, ecx, edx, ebx, esp, ebp, esi, edi;
+    unsigned int es, cs, ss, ds, fs, gs, ldt;
+    unsigned short trap, iomap;
+} __attribute__((packed));
+
+unsigned char gdt_tab[6 * 8] __attribute__((aligned(16)));      // 6 сегментов
+unsigned char idt_tab[256 * 8] __attribute__((aligned(16)));    // 256 шлюзов
+tss_t tss;
+unsigned int sys_stack[512] __attribute__((aligned(16)));       // стек ядра для сисколлов
+
+// ===========================================================================
+//  Служебный ассемблер: вход в ring 3, возврат в ядро, шлюз int 0x80
+// ===========================================================================
+//  Как в Linux, здесь самый минимум: один шлюз сисколлов (сохраняет все
+//  регистры программы) и ловушки #DF/#GP/#PF — они печатают вектор и код
+//  ошибки, а потом останавливают машину (вместо загадочной перезагрузки).
+extern "C" void enter_user(unsigned int entry, unsigned int ustack);
+extern "C" void syscall_back();
+extern "C" void syscall_dispatch(unsigned int* regs);
+extern "C" void cpu_fault(unsigned int vec, unsigned int err);
+extern "C" void isr_syscall();
+extern "C" void isr_df(); extern "C" void isr_gp(); extern "C" void isr_pf();
+
+unsigned int saved_kernel_esp = 0;          // куда вернуться после ring 3
+
+asm(
+".text\n"
+// --- войти в ring 3: [esp+4]=вход, [esp+8]=стек программы ---------------
+".global _enter_user\n"
+"_enter_user:\n"
+"    pushl %ebp\n"
+"    pushl %ebx\n"
+"    pushl %esi\n"
+"    pushl %edi\n"
+"    movl %esp, _saved_kernel_esp\n"
+"    movl 20(%esp), %eax\n"                 // EIP программы
+"    movl 24(%esp), %edx\n"                 // ESP программы
+"    movw $0x23, %cx\n"                     // данные программы (ring 3)
+"    movw %cx, %ds\n"
+"    movw %cx, %es\n"
+"    movw %cx, %fs\n"
+"    movw %cx, %gs\n"
+"    pushl $0x23\n"                         // SS программы
+"    pushl %edx\n"                          // ESP программы
+"    pushl $0x2\n"                          // EFLAGS (прерывания выключены)
+"    pushl $0x1B\n"                         // CS программы (ring 3)
+"    pushl %eax\n"                          // EIP
+"    iret\n"
+// --- вернуться в ядро (зовётся из сисколла EXIT) ------------------------
+".global _syscall_back\n"
+"_syscall_back:\n"
+"    movl _saved_kernel_esp, %esp\n"
+"    popl %edi\n"
+"    popl %esi\n"
+"    popl %ebx\n"
+"    popl %ebp\n"
+"    ret\n"
+// --- шлюз int 0x80: сохранить ВСЁ, взять сегменты ядра, позвать C --------
+".global _isr_syscall\n"
+"_isr_syscall:\n"
+"    pushl %ds\n"
+"    pushl %es\n"
+"    pushl %fs\n"
+"    pushl %gs\n"
+"    pushal\n"
+"    movl $0x10, %eax\n"
+"    movl %eax, %ds\n"
+"    movl %eax, %es\n"
+"    movl %eax, %fs\n"
+"    movl %eax, %gs\n"
+"    pushl %esp\n"                          // аргумент: кадр с регистрами
+"    call _syscall_dispatch\n"
+"    addl $4, %esp\n"
+"    popal\n"                               // EAX тут — уже результат вызова
+"    popl %gs\n"
+"    popl %fs\n"
+"    popl %es\n"
+"    popl %ds\n"
+"    iret\n"
+// --- ошибки процессора: вектор + код ошибки -> C, дальше стоп -----------
+".global _isr_df\n"
+"_isr_df:\n"
+"    pushl $8\n"
+"    jmp _isr_common\n"
+".global _isr_gp\n"
+"_isr_gp:\n"
+"    pushl $13\n"
+"    jmp _isr_common\n"
+".global _isr_pf\n"
+"_isr_pf:\n"
+"    pushl $14\n"
+"    jmp _isr_common\n"
+"_isr_common:\n"
+"    pushal\n"
+"    movl $0x10, %eax\n"
+"    movl %eax, %ds\n"
+"    movl %eax, %es\n"
+"    movl %eax, %fs\n"
+"    movl %eax, %gs\n"
+"    movl 32(%esp), %ecx\n"                 // вектор (положили его сами)
+"    movl 36(%esp), %ebx\n"                 // код ошибки от процессора
+"    pushl %ebx\n"
+"    pushl %ecx\n"
+"    call _cpu_fault\n"
+"    addl $8, %esp\n"
+"1:\n"
+"    hlt\n"
+"    jmp 1b\n"
+);
+
+// ===========================================================================
+//  Инициализация: страницы, GDT/TSS, IDT
+// ===========================================================================
+// Включить страничную адресацию. Без неё ring 3 невозможен — точно так же,
+// как в Linux: у каждой программы своё адресное пространство.
+void mem_init(unsigned int fba) {
+    for (int i = 0; i < 1024; i++) page_dir[i] = 0;
+    page_dir[0] = 0x00000000 | PTE_P | PTE_RW | PTE_PS;             // 0..4 МБ — ядро (только ring 0)
+    page_dir[1] = USER_BASE  | PTE_P | PTE_RW | PTE_PS | PTE_USER;  // 4..8 МБ — программы (ring 3)
+    unsigned int base = fba & 0xFFC00000u;   // адрес видеопамяти — до 4 МБ
+    for (int i = 0; i < 3; i++)              // картину видеопамяти открываем и программам
+        page_dir[(base >> 22) + i] = (base + (unsigned int)i * 0x100000) | PTE_P | PTE_RW | PTE_PS | PTE_USER;
+    asm volatile("mov %%cr4, %%eax\n\tor $0x10, %%eax\n\tmov %%eax, %%cr4" ::: "eax");       // включить страницы 4 МБ (PSE)
+    asm volatile("mov %0, %%cr3" :: "r"(page_dir) : "memory");                                // каталог страниц
+    asm volatile("mov %%cr0, %%eax\n\tor $0x80000000, %%eax\n\tmov %%eax, %%cr0" ::: "eax"); // и сами страницы (PG)
+}
+
+// Записать сегмент в GDT: base — начало, limit — размер, access — права,
+// flags — разрядность и гранулярность (0xCF = 4 ГБ страницами по 4 КБ)
+void gdt_set(int i, unsigned int base, unsigned int limit, unsigned char access, unsigned char flags) {
+    unsigned char* d = gdt_tab + i * 8;
+    d[0] = (unsigned char)(limit & 0xFF);
+    d[1] = (unsigned char)((limit >> 8) & 0xFF);
+    d[2] = (unsigned char)(base & 0xFF);
+    d[3] = (unsigned char)((base >> 8) & 0xFF);
+    d[4] = (unsigned char)((base >> 16) & 0xFF);
+    d[5] = access;
+    d[6] = (unsigned char)(((limit >> 16) & 0x0F) | flags);
+    d[7] = (unsigned char)((base >> 24) & 0xFF);
+}
+
+// GDT + TSS: сегменты ядра (0x08/0x10), программы (0x1B/0x23) и TSS (0x28)
+void gdt_init() {
+    for (int i = 0; i < 48; i++) gdt_tab[i] = 0;
+    gdt_set(1, 0, 0xFFFFF, 0x9A, 0xCF);      // 0x08 — код ядра
+    gdt_set(2, 0, 0xFFFFF, 0x92, 0xCF);      // 0x10 — данные ядра
+    gdt_set(3, 0, 0xFFFFF, 0xFA, 0xCF);      // 0x1B — код программы (ring 3)
+    gdt_set(4, 0, 0xFFFFF, 0xF2, 0xCF);      // 0x23 — данные программы
+    for (unsigned int i = 0; i < sizeof(tss); i++) ((unsigned char*)&tss)[i] = 0;
+    tss.ss0  = 0x10;                          // стек ядра — сегмент данных ядра
+    tss.esp0 = (unsigned int)(sys_stack + 512);
+    tss.iomap = (unsigned short)sizeof(tss);  // I/O-карты нет: порты программам закрыты
+    gdt_set(5, (unsigned int)&tss, sizeof(tss) - 1, 0x89, 0x00);
+    struct { unsigned short lim; unsigned int base; } __attribute__((packed)) gdtr;
+    gdtr.lim = sizeof(gdt_tab) - 1;
+    gdtr.base = (unsigned int)gdt_tab;
+    asm volatile("lgdt %0" :: "m"(gdtr));
+    asm volatile("ljmp $0x08, $1f\n1:");      // перезагрузить CS
+    asm volatile("mov $0x10, %%ax\n\tmov %%ax, %%ds\n\tmov %%ax, %%es\n\tmov %%ax, %%fs\n\tmov %%ax, %%gs\n\tmov %%ax, %%ss" ::: "eax", "memory");
+    asm volatile("mov $0x28, %%ax\n\tltr %%ax" ::: "eax");   // пусть процессор знает про TSS
+}
+
+// Шлюз в таблице прерываний. dpl=3 — шлюз доступен программам (int 0x80).
+void idt_set(int n, unsigned int handler, unsigned char dpl) {
+    unsigned char* d = idt_tab + n * 8;
+    for (int i = 0; i < 8; i++) d[i] = 0;
+    if (!handler) return;
+    d[0] = (unsigned char)(handler & 0xFF);
+    d[1] = (unsigned char)((handler >> 8) & 0xFF);
+    d[2] = 0x08;                               // селектор кода ядра
+    d[5] = (unsigned char)(0x8E | (dpl << 5)); // шлюз прерывания + уровень доступа
+    d[6] = (unsigned char)((handler >> 16) & 0xFF);
+    d[7] = (unsigned char)((handler >> 24) & 0xFF);
+}
+
+void idt_init() {
+    idt_set(0x80, (unsigned int)isr_syscall, 3);   // сисколлы — можно из ring 3
+    idt_set(8,  (unsigned int)isr_df, 0);          // double fault
+    idt_set(13, (unsigned int)isr_gp, 0);          // общая ошибка защиты
+    idt_set(14, (unsigned int)isr_pf, 0);          // страничная ошибка
+    struct { unsigned short lim; unsigned int base; } __attribute__((packed)) idtr;
+    idtr.lim = sizeof(idt_tab) - 1;
+    idtr.base = (unsigned int)idt_tab;
+    asm volatile("lidt %0" :: "m"(idtr));
+}
+
+// ===========================================================================
+//  Сами системные вызовы: единственная дверь из программы в ядро
+// ===========================================================================
+// Проверка: адрес и длина обязаны лежать в памяти программы (4..8 МБ).
+// Программа не может попросить ядро «почитать» чужую память.
+bool user_ok(unsigned int addr, unsigned int len) {
+    if (addr < USER_BASE) return false;
+    if (len > USER_SIZE) return false;
+    if (addr + len > USER_BASE + USER_SIZE) return false;
+    return true;
+}
+
+unsigned int sys_do(unsigned int num, unsigned int a1, unsigned int a2, unsigned int a3) {
+    (void)a2; (void)a3;
+    if (num == 0) { syscall_back(); return 0; }               // EXIT — назад в ядро (не вернётся)
+    if (num == 1) return (unsigned int)poll_key();            // KEY — сканкод или -1
+    if (num == 2) {                                           // MOUSE — {x, y, кнопка}
+        if (!user_ok(a1, 12)) return (unsigned int)-1;
+        unsigned int* p = (unsigned int*)a1;
+        p[0] = (unsigned int)mouse_x;
+        p[1] = (unsigned int)mouse_y;
+        p[2] = (unsigned int)(mouse_btn & 1);
+        return 0;
+    }
+    if (num == 3) return millis();                            // TICKS
+    if (num == 4) return (unsigned int)day_secs();            // TIME
+    if (num == 5) {                                           // FB — где видеопамять
+        if (!user_ok(a1, sizeof(sys_fb_t))) return (unsigned int)-1;
+        sys_fb_t* p = (sys_fb_t*)a1;
+        p->addr  = (unsigned int)fb;
+        p->w = W; p->h = H; p->bpp = FB_BPP; p->pitch = FB_PITCH;
+        return 0;
+    }
+    if (num == 6) {                                           // PRINT — строка в консоль ядра
+        if (!user_ok(a1, 1)) return (unsigned int)-1;
+        const char* s = (const char*)a1;
+        char buf[256];
+        int n = 0;
+        while (n < 255 && user_ok(a1 + n, 1) && s[n]) { buf[n] = s[n]; n++; }
+        buf[n] = 0;
+        cmd_print(buf);
+        return (unsigned int)n;
+    }
+    return (unsigned int)-1;                                  // неизвестный вызов
+}
+
+// Мостик из ассемблерного шлюза в C: кадр регистров (pushal) лежит по
+// адресу regs; ответ кладём в сохранённый EAX — его вернёт popal.
+extern "C" void syscall_dispatch(unsigned int* regs) {
+    unsigned int num = regs[7];                               // EAX — номер вызова
+    unsigned int a1  = regs[4];                               // EBX
+    unsigned int a2  = regs[6];                               // ECX
+    unsigned int a3  = regs[5];                               // EDX
+    regs[7] = sys_do(num, a1, a2, a3);
+}
+
+// Аварийный выход: напечатать, что случилось, и остановить машину
+extern "C" void cpu_fault(unsigned int vec, unsigned int err) {
+    unsigned int cr2 = 0;
+    asm volatile("mov %%cr2, %0" : "=r"(cr2));
+    cmd_print("CPU fault: vector ");
+    print_dec(vec);
+    cmd_print(", error code ");
+    print_dec(err);
+    cmd_print(" at ");
+    print_dec(cr2);
+    cmd_print(" (pde ");
+    print_dec(page_dir[cr2 >> 22]);
+    cmd_print(")\nSystem halted.\n");
+    while (true) { }
+}
+
+// ===========================================================================
+//  Запуск программы пользователя: скопировать в 4..8 МБ и прыгнуть в ring 3
+// ===========================================================================
+bool user_start(const unsigned char* img, unsigned int len) {
+    if (len == 0 || len > USER_SIZE - 0x10000) return false;
+    unsigned char* dst = (unsigned char*)USER_BASE;
+    for (unsigned int i = 0; i < len; i++) dst[i] = img[i];
+    unsigned int ustack = USER_BASE + USER_SIZE - 8;          // вершина стека программы
+    unsigned int vcr0, vcr3, vcr4;
+    asm volatile("mov %%cr0, %0" : "=r"(vcr0));
+    asm volatile("mov %%cr3, %0" : "=r"(vcr3));
+    asm volatile("mov %%cr4, %0" : "=r"(vcr4));
+    cmd_print("ring3: cr0="); print_dec(vcr0);
+    cmd_print(" cr3="); print_dec(vcr3);
+    cmd_print(" cr4="); print_dec(vcr4);
+    cmd_print(" pd0="); print_dec(page_dir[0]);
+    cmd_print(" pd1="); print_dec(page_dir[1]);
+    cmd_print("\n");
+    cmd_print("ring3: entering user mode...\n");
+    enter_user(USER_BASE, ustack);                            // уходим в ring 3
+    cmd_print("ring3: back in the kernel (ring 0).\n");
+    return true;
+}
+
+// ===========================================================================
 //  kernel_main — точка входа ядра (её вызывает stage2.asm)
 // ===========================================================================
 extern "C" void kernel_main() {
     init_video();                        // видео: «записка» stage2 (VESA VBE)
+    mem_init((unsigned int)fb);          // страницы: ядро 0..4 МБ, программы 4..8 МБ
+    gdt_init();                          // сегменты ring 0/3 + TSS (как в Linux)
+    idt_init();                          // шлюз сисколлов int 0x80 + ловушки ошибок
     pit_init();                          // таймер (заставка, игра, мигание курсора)
     draw_splash();                       // заставка с логотипом
     init_layout();                       // окно консоли — под текущий экран
