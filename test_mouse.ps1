@@ -23,8 +23,11 @@ function Shot($name) { $w.WriteLine("screendump $d\$name.ppm"); Start-Sleep -Mil
 function RawMove($dx, $dy) {
     $n = [Math]::Ceiling([Math]::Max([Math]::Abs($dx), [Math]::Abs($dy)) / 40.0)
     if ($n -lt 1) { $n = 1 }
+    $px = 0; $py = 0                            # cumulative step targets
     for ($i = 0; $i -lt $n; $i++) {
-        $sx = [int][Math]::Round($dx / $n); $sy = [int][Math]::Round($dy / $n)
+        $cx = [int][Math]::Round(($i + 1) * $dx / $n)
+        $cy = [int][Math]::Round(($i + 1) * $dy / $n)
+        $sx = $cx - $px; $sy = $cy - $py; $px = $cx; $py = $cy
         if ($sx -eq 0 -and $sy -eq 0) { continue }
         $w.WriteLine("mouse_move $sx $sy"); Start-Sleep -Milliseconds 80
     }
@@ -47,17 +50,17 @@ function DragTo($x1, $y1, $x2, $y2) {
 Start-Sleep -Seconds 2
 Shot 'mt0'                                   # desktop + cursor in the centre
 
-Click 398 740                                # Terminal (dock icon 0)
+Click 308 715                                # Terminal (dock icon 0)
 Start-Sleep -Milliseconds 900
-Click 436 740                                # Files (icon 1) on top of Terminal
+Click 376 715                                # Files (icon 1) on top of Terminal
 Start-Sleep -Milliseconds 900
 Shot 'mt1'                                   # Files over the Terminal
-Click 398 740                                # Terminal again - raise, text must stay
+Click 308 715                                # Terminal again - raise, text must stay
 Start-Sleep -Milliseconds 900
 Shot 'mt2'                                   # Terminal on top, its text intact
-Click 588 740                                # Game (icon 5)
+Click 648 715                                # Game (icon 5)
 Start-Sleep -Milliseconds 900
-Click 550 740                                # Code (icon 4)
+Click 580 715                                # Code (icon 4)
 Start-Sleep -Milliseconds 1200
 Shot 'mt3'                                   # four windows at once
 

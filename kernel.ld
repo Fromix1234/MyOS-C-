@@ -19,6 +19,7 @@ SECTIONS
         *(.text.*)
         *(.rdata)            /* строки (сюда же — ВПЛОТНУЮ, без дыр) */
         *(.rdata.*)
+        *(.rdata$*)          /* в т.ч. .rdata$zzz — «GCC: (GNU)...» от MinGW */
         *(.rodata)
         *(.rodata.*)
         *(.data)             /* и данные, если будут */

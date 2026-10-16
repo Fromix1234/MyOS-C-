@@ -38,7 +38,7 @@ Start-Sleep -Seconds 1
 # После Esc фокус сам возвращается в консоль (она всё ещё открыта) - печатаем туда
 Kbd 'play'
 Send 'ret'
-Start-Sleep -Milliseconds 700
+Start-Sleep -Milliseconds 3400             # ждём статичный GAME OVER (змейка врезалась)
 Shot 'c_play'                              # игра по команде play
 Send 'esc'
 Start-Sleep -Seconds 1

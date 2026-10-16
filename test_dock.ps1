@@ -22,8 +22,11 @@ function Shot($n) { $w.WriteLine("screendump $d\$n.ppm"); Start-Sleep -Milliseco
 function RawMove($dx, $dy) {
     $n = [Math]::Ceiling([Math]::Max([Math]::Abs($dx), [Math]::Abs($dy)) / 40.0)
     if ($n -lt 1) { $n = 1 }
+    $px = 0; $py = 0                            # cumulative step targets
     for ($i = 0; $i -lt $n; $i++) {
-        $sx = [int][Math]::Round($dx / $n); $sy = [int][Math]::Round($dy / $n)
+        $cx = [int][Math]::Round(($i + 1) * $dx / $n)
+        $cy = [int][Math]::Round(($i + 1) * $dy / $n)
+        $sx = $cx - $px; $sy = $cy - $py; $px = $cx; $py = $cy
         if ($sx -eq 0 -and $sy -eq 0) { continue }
         $w.WriteLine("mouse_move $sx $sy"); Start-Sleep -Milliseconds 150
     }
@@ -34,10 +37,10 @@ function MMoveTo($x, $y) { RawMove ($x - $script:mxc) ($y - $script:myc) }
 Start-Sleep -Seconds 3
 Shot 'd0'                                        # desktop, cursor in the center
 
-MMoveTo 398 690                                  # just above the dock
+MMoveTo 308 660                                  # just above the dock
 Shot 'd1'                                        # still alive?
 
-MMoveTo 398 740                                  # now ON the dock (icon 0)
+MMoveTo 308 715                                  # now ON the dock (icon 0)
 Shot 'd2'                                        # alive? hover redraw?
 
 $w.WriteLine('mouse_button 1'); Start-Sleep -Milliseconds 300
@@ -47,7 +50,7 @@ Shot 'd3'                                        # click on Terminal -> console 
 MMoveTo 700 400                                  # away from the dock
 Shot 'd4'                                        # still alive?
 
-MMoveTo 436 740                                  # Files icon
+MMoveTo 376 715                                  # Files icon
 $w.WriteLine('mouse_button 1'); Start-Sleep -Milliseconds 300
 $w.WriteLine('mouse_button 0'); Start-Sleep -Milliseconds 600
 Shot 'd5'                                        # Files window too

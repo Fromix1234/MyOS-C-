@@ -24,8 +24,11 @@ function Kbd($s) { foreach ($ch in $s.ToCharArray()) { if ($ch -eq ' ') { Send '
 function RawMove($dx, $dy) {
     $n = [Math]::Ceiling([Math]::Max([Math]::Abs($dx), [Math]::Abs($dy)) / 40.0)
     if ($n -lt 1) { $n = 1 }
+    $px = 0; $py = 0                            # cumulative step targets
     for ($i = 0; $i -lt $n; $i++) {
-        $sx = [int][Math]::Round($dx / $n); $sy = [int][Math]::Round($dy / $n)
+        $cx = [int][Math]::Round(($i + 1) * $dx / $n)
+        $cy = [int][Math]::Round(($i + 1) * $dy / $n)
+        $sx = $cx - $px; $sy = $cy - $py; $px = $cx; $py = $cy
         if ($sx -eq 0 -and $sy -eq 0) { continue }
         $w.WriteLine("mouse_move $sx $sy"); Start-Sleep -Milliseconds 80
     }
@@ -65,13 +68,13 @@ Start-Sleep -Milliseconds 700
 Send 'f3'                                    # close the console
 Start-Sleep -Milliseconds 700
 
-Click 398 740                                # Terminal
+Click 308 715                                # Terminal
 Start-Sleep -Milliseconds 900
-Click 550 740                                # Code
+Click 580 715                                # Code
 Start-Sleep -Milliseconds 900
-Click 588 740                                # Game
+Click 648 715                                # Game
 Start-Sleep -Milliseconds 900
-Click 436 740                                # Files
+Click 376 715                                # Files
 Start-Sleep -Milliseconds 1200
 Shot 'gx5'                                   # windows stacked: glass over glass
 
