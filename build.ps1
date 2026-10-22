@@ -21,6 +21,7 @@ $NASM = "C:\Users\User\AppData\Local\bin\NASM\nasm.exe"
 $QEMU = "C:\Program Files\qemu\qemu-system-i386.exe"
 $BIN  = "C:\Users\User\AppData\Local\Programs\w64devkit\w64devkit\bin"
 $GXX  = "g++"
+$RUSTC = "$env:USERPROFILE\.cargo\bin\rustc.exe"
 $P    = "D:\C++\MyOS"
 Set-Location $P
 
@@ -65,6 +66,18 @@ Write-Host "    shell.bin = $($shell.Length) bytes (entry 0x$shellEntry)" -Foreg
 
 # ---------------------------------------------------------------------------
 Write-Host "=== 2. Compiling C++ kernel (kernel/kernel.cpp) ===" -ForegroundColor Cyan
+# Rust-компоненты ядра (kernel-rs): no_std staticlib в COFF под
+# i686-pc-windows-gnu. Линкуются тем же MinGW-линкером, что и C++-ядро;
+# граница языков — C ABI. Собирается один раз (от проходов KERNEL_SECTORS
+# не зависит).
+if (Test-Path $RUSTC) {
+    Write-Host "=== 1b. Compiling Rust kernel component (kernel-rs) ===" -ForegroundColor Cyan
+    & $RUSTC --edition 2021 --target i686-pc-windows-gnu --crate-type staticlib -O -C panic=abort "$P\kernel-rs\rs_probe.rs" -o "$P\kernel-rs\librs.a"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel-rs (rustc)" -ForegroundColor Red; exit 1 }
+    if (-not (Test-Path "$P\kernel-rs\librs.a")) { Write-Host "ERROR: kernel-rs/librs.a not created" -ForegroundColor Red; exit 1 }
+} else {
+    Write-Host "WARN: rustc not found - Rust components disabled" -ForegroundColor Yellow
+}
 # Compile TWICE: the first pass learns the kernel size, the second pass bakes
 # that number into the kernel as KERNEL_SECTORS (the 'install' command copies
 # the kernel by sectors and must know how many). The loop recalculates until
@@ -77,7 +90,7 @@ for ($pass = 0; $pass -lt 3; $pass++) {
     if (-not (Test-Path "$P\kernel.o")) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
     Remove-Junk "$P\kernel.o" "$P\kernel_clean.o"
     Write-Host "=== 2. Linking kernel (kernel.ld) ===" -ForegroundColor Cyan
-    & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o"
+    & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o" "$P\kernel-rs\librs.a"
     if (-not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
     & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
     $kernelSize = (Get-Item "$P\kernel.bin").Length
