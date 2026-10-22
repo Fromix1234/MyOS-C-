@@ -1,8 +1,8 @@
 # ===========================================================================
 #  build.ps1 - build the whole OS: kernel (ring 0) + shell (ring 3) + disk
 # ===========================================================================
-#  Architecture (v2.0, Zen/Linux-like):
-#    - kernel.bin (ring 0): hardware + syscalls only, no GUI;
+#  Architecture (v3.0, Zen/Linux-like):
+#    - kernel.bin (ring 0): Rust kernel-rs (default: C++ kernel v2.1 reference);
 #    - shell.bin  (ring 3): the whole desktop/console/apps, runs from MyFS;
 #    - demo.bin   (ring 3): test program started by the 'ring3' command.
 #
@@ -64,19 +64,24 @@ if ($shellEntry.ToLower() -ne "00400000") { Write-Host "WARN: shell_main at 0x$s
 Write-Host "    shell.bin = $($shell.Length) bytes (entry 0x$shellEntry)" -ForegroundColor Yellow
 
 # ---------------------------------------------------------------------------
-# Какой экипаж? По умолчанию — C++-ядро v2.x (эталон). Флаг '-rust' собирает
-# НОВОЕ ядро v3 на Rust (kernel-rs) с тем же адресом загрузки и контрактом
-# точки входа (stage2 прыгает на kernel_main из kernel.ld).
+# Which kernel? By default: C++ kernel v2.x (reference). The '-rust' flag
+# builds the NEW Rust kernel v3 (kernel-rs) with the same load address and
+# entry contract (stage2 jumps to kernel_main from the linker script).
 $UseRust = ($args -contains "-rust")
 if ($UseRust) {
     Write-Host "=== 2. Compiling Rust kernel (kernel-rs -> kernel.bin) ===" -ForegroundColor Cyan
     $CARGO = "$env:USERPROFILE\.cargo\bin\cargo.exe"
     if (-not (Test-Path $CARGO)) { Write-Host "ERROR: cargo not found (install Rust)" -ForegroundColor Red; exit 1 }
-    & $CARGO build --release --target i686-pc-windows-gnu --manifest-path "$P\kernel-rs\Cargo.toml"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling Rust kernel" -ForegroundColor Red; exit 1 }
+    # Rust kernel needs nightly: build-std=core + panic=immediate-abort keep
+    # the image small (no core fmt/unicode). Host toolchain must be GNU so the
+    # compiler_builtins build script links with w64devkit MinGW.
+    $env:PATH = "$BIN;" + $env:PATH
+    $env:RUSTFLAGS = "-Zfunction-sections=yes"
+    & $CARGO +nightly-x86_64-pc-windows-gnu build --release --target i686-pc-windows-gnu -Z build-std=core --manifest-path "$P\kernel-rs\Cargo.toml"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling Rust kernel (need: rustup toolchain install nightly-x86_64-pc-windows-gnu --component rust-src)" -ForegroundColor Red; exit 1 }
     $rustLib = "$P\kernel-rs\target\i686-pc-windows-gnu\release\libmyos_kernel_rs.a"
     if (-not (Test-Path $rustLib)) { Write-Host "ERROR: Rust staticlib not found" -ForegroundColor Red; exit 1 }
-    & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$rustLib"
+    & "$BIN\ld.exe" -m i386pe --gc-sections -T "$P\kernel-rs\kernel.ld" -o "$P\kernel.exe" "$rustLib"
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking Rust kernel" -ForegroundColor Red; exit 1 }
     & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
     $kernelSize = (Get-Item "$P\kernel.bin").Length

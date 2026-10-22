@@ -1,3 +1,5 @@
+cargo-features = ["panic-immediate-abort"]
+
 [package]
 name = "myos-kernel-rs"
 version = "3.0.0"
@@ -12,7 +14,7 @@ path = "src/lib.rs"
 
 [profile.release]
 opt-level = "s"
-panic = "abort"
+panic = "immediate-abort"
 codegen-units = 1
 debug = false
 overflow-checks = false
