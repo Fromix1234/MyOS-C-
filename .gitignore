@@ -6,6 +6,8 @@ disk.img.sha256
 *.elf
 *.exe
 *.map
+*.a
+kernel-rs/target/
 
 # --- Скриншоты тестов (QEMU) ---
 *.ppm

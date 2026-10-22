@@ -1,8 +1,8 @@
 # ===========================================================================
 #  build.ps1 - build the whole OS: kernel (ring 0) + shell (ring 3) + disk
 # ===========================================================================
-#  Architecture (v2.0, Zen/Linux-like):
-#    - kernel.bin (ring 0): hardware + syscalls only, no GUI;
+#  Architecture (v3.0, Zen/Linux-like):
+#    - kernel.bin (ring 0): Rust kernel-rs (default: C++ kernel v2.1 reference);
 #    - shell.bin  (ring 3): the whole desktop/console/apps, runs from MyFS;
 #    - demo.bin   (ring 3): test program started by the 'ring3' command.
 #
@@ -64,26 +64,50 @@ if ($shellEntry.ToLower() -ne "00400000") { Write-Host "WARN: shell_main at 0x$s
 Write-Host "    shell.bin = $($shell.Length) bytes (entry 0x$shellEntry)" -ForegroundColor Yellow
 
 # ---------------------------------------------------------------------------
-Write-Host "=== 2. Compiling C++ kernel (kernel/kernel.cpp) ===" -ForegroundColor Cyan
-# Compile TWICE: the first pass learns the kernel size, the second pass bakes
-# that number into the kernel as KERNEL_SECTORS (the 'install' command copies
-# the kernel by sectors and must know how many). The loop recalculates until
-# the value stops changing (normally exactly 2 passes).
-$sectors = 16
-for ($pass = 0; $pass -lt 3; $pass++) {
-    Remove-Item -Force "$P\kernel.o" -ErrorAction SilentlyContinue
-    & $GXX @CXXFLAGS "-DKERNEL_SECTORS=$sectors" -c "$P\kernel\kernel.cpp" -o "$P\kernel.o"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
-    if (-not (Test-Path "$P\kernel.o")) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
-    Remove-Junk "$P\kernel.o" "$P\kernel_clean.o"
-    Write-Host "=== 2. Linking kernel (kernel.ld) ===" -ForegroundColor Cyan
-    & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o"
-    if (-not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
+# Which kernel? By default: C++ kernel v2.x (reference). The '-rust' flag
+# builds the NEW Rust kernel v3 (kernel-rs) with the same load address and
+# entry contract (stage2 jumps to kernel_main from the linker script).
+$UseRust = ($args -contains "-rust")
+if ($UseRust) {
+    Write-Host "=== 2. Compiling Rust kernel (kernel-rs -> kernel.bin) ===" -ForegroundColor Cyan
+    $CARGO = "$env:USERPROFILE\.cargo\bin\cargo.exe"
+    if (-not (Test-Path $CARGO)) { Write-Host "ERROR: cargo not found (install Rust)" -ForegroundColor Red; exit 1 }
+    # Rust kernel needs nightly: build-std=core + panic=immediate-abort keep
+    # the image small (no core fmt/unicode). Host toolchain must be GNU so the
+    # compiler_builtins build script links with w64devkit MinGW.
+    $env:PATH = "$BIN;" + $env:PATH
+    $env:RUSTFLAGS = "-Zfunction-sections=yes"
+    & $CARGO +nightly-x86_64-pc-windows-gnu build --release --target i686-pc-windows-gnu -Z build-std=core --manifest-path "$P\kernel-rs\Cargo.toml"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling Rust kernel (need: rustup toolchain install nightly-x86_64-pc-windows-gnu --component rust-src)" -ForegroundColor Red; exit 1 }
+    $rustLib = "$P\kernel-rs\target\i686-pc-windows-gnu\release\libmyos_kernel_rs.a"
+    if (-not (Test-Path $rustLib)) { Write-Host "ERROR: Rust staticlib not found" -ForegroundColor Red; exit 1 }
+    & "$BIN\ld.exe" -m i386pe --gc-sections -T "$P\kernel-rs\kernel.ld" -o "$P\kernel.exe" "$rustLib"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking Rust kernel" -ForegroundColor Red; exit 1 }
     & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
     $kernelSize = (Get-Item "$P\kernel.bin").Length
-    $newSectors = [int][Math]::Ceiling($kernelSize / 512) + 1
-    if ($newSectors -eq $sectors) { break }
-    $sectors = $newSectors
+    $sectors = [int][Math]::Ceiling($kernelSize / 512) + 1
+} else {
+    Write-Host "=== 2. Compiling C++ kernel (kernel/kernel.cpp) ===" -ForegroundColor Cyan
+    # Compile TWICE: the first pass learns the kernel size, the second pass bakes
+    # that number into the kernel as KERNEL_SECTORS (the 'install' command copies
+    # the kernel by sectors and must know how many). The loop recalculates until
+    # the value stops changing (normally exactly 2 passes).
+    $sectors = 16
+    for ($pass = 0; $pass -lt 3; $pass++) {
+        Remove-Item -Force "$P\kernel.o" -ErrorAction SilentlyContinue
+        & $GXX @CXXFLAGS "-DKERNEL_SECTORS=$sectors" -c "$P\kernel\kernel.cpp" -o "$P\kernel.o"
+        if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
+        if (-not (Test-Path "$P\kernel.o")) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
+        Remove-Junk "$P\kernel.o" "$P\kernel_clean.o"
+        Write-Host "=== 2. Linking kernel (kernel.ld) ===" -ForegroundColor Cyan
+        & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o"
+        if (-not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
+        & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
+        $kernelSize = (Get-Item "$P\kernel.bin").Length
+        $newSectors = [int][Math]::Ceiling($kernelSize / 512) + 1
+        if ($newSectors -eq $sectors) { break }
+        $sectors = $newSectors
+    }
 }
 Write-Host "    kernel.bin = $kernelSize bytes = $sectors sectors" -ForegroundColor Yellow
 if (($sectors + 3) -gt 192) { Write-Host "ERROR: kernel does not fit the boot area (need $sectors+3, PART_RESERVED=192)" -ForegroundColor Red; exit 1 }
@@ -222,10 +246,16 @@ Set-Name $tab 64 "demo.bin";  Set-Le32 $tab 120 $demoStart; Set-Le32 $tab 124 $d
 [System.Array]::Copy($demo,  0, $final, $demoStart * 512, $demo.Length)   # demo.bin data
 Write-Host "    MyFS on P1: shell.bin @ $dataLba ($shellSecs sec), demo.bin @ $demoStart ($demoSecs sec)" -ForegroundColor Yellow
 
-[System.IO.File]::WriteAllBytes("$P\disk.img", $final)
+try {
+    [System.IO.File]::WriteAllBytes("$P\disk.img", $final)
+} catch {
+    Write-Host "ERROR: cannot write disk.img (QEMU still running? close it first)" -ForegroundColor Red
+    Write-Host "    $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 Write-Host "    disk.img = $($final.Length) bytes (32 MB HDD with MBR table)" -ForegroundColor Green
 
-if ($args[0] -eq "-norun") { Write-Host "Done (no run)."; exit 0 }
+if ($args -contains "-norun") { Write-Host "Done (no run)."; exit 0 }
 
 Write-Host ""
 Write-Host "=== 5. Running in QEMU ===" -ForegroundColor Cyan

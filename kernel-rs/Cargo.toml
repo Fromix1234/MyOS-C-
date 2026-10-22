@@ -1,0 +1,20 @@
+cargo-features = ["panic-immediate-abort"]
+
+[package]
+name = "myos-kernel-rs"
+version = "3.0.0"
+edition = "2021"
+publish = false
+
+# Ядро — статическая библиотека: линкуется MinGW-линкером в плоский
+# kernel.bin по тому же адресу 0x10000, что и раньше (см. kernel.ld).
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = "s"
+panic = "immediate-abort"
+codegen-units = 1
+debug = false
+overflow-checks = false
