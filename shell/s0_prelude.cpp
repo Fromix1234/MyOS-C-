@@ -78,9 +78,63 @@ const unsigned int RW_MOON    = 0xE9ECF4;   // диск луны
 const unsigned int RW_MOON_D  = 0xC3C9DC;   // полутень на диске
 const unsigned int RW_HALO    = 0x4A4F76;   // цвет ореола
 
+// ===========================================================================
+//  ОБОИ «BLISS HILL» — дневная тема по мотивам Windows XP Bliss:
+//  чистое голубое небо и зелёные холмы. Тоже целиком на целочисленной
+//  математике; луны и звёзд нет, зато у травы есть «полосатая» фактура.
+// ===========================================================================
+int wall_theme = 0;                          // 0 = Night Ridge, 1 = Bliss Hill
+void wall_theme_next() { wall_theme = 1 - wall_theme; }
+
+const unsigned int BW_SKY_TOP = 0x3F8FD2;   // насыщенный голубой в зените
+const unsigned int BW_SKY_MID = 0x7BBBE8;   // светлее к середине неба
+const unsigned int BW_SKY_HZ  = 0xBEE0F5;   // почти белый у горизонта
+const unsigned int BW_SKY_LOW = 0xDDEEFA;   // тень у самой линии холмов
+const unsigned int BW_FAR     = 0x2F7C36;   // дальний холм — глубокая зелень
+const unsigned int BW_FAR_L   = 0x53A85A;   // ...солнечная сторона
+const unsigned int BW_FAR_E   = 0x7CC768;   // гребень, поймавший свет
+const unsigned int BW_MID     = 0x3F9A46;   // средний холм — сочнее
+const unsigned int BW_MID_L   = 0x6BBE5E;   // ...светлая сторона
+const unsigned int BW_MID_E   = 0x8FD97A;   // его гребень
+// Трава переднего плана: три тона полос + свет сверху и тень у нижней кромки.
+const unsigned int BW_G1 = 0x27612F;        // тёмная полоса травы
+const unsigned int BW_G2 = 0x2F7A36;        // средняя
+const unsigned int BW_G3 = 0x3C9443;        // светлая
+const unsigned int BW_GRASS_LIT = 0x8ED268; // солнечный блик на вершине слоя
+const unsigned int BW_GRASS_DK  = 0x1E4C25; // тень у нижней кромки экрана
+
+// Дневной темы холмы: мягкий «Bliss» вместо ночных острых гребней.
+// hill_val — параболический холм 0..256 с КРУГЛОЙ вершиной в центре периода
+// и нулём у подножия (стыка периодов): производная у пика — нулевая.
+int hill_val(int x, int p) {
+    if (p < 4) return 0;
+    x %= p; if (x < 0) x += p;
+    int half = p / 2;
+    int d = x - half; if (d < 0) d = -d;     // 0 в центре, half у подножия
+    return 256 - (d * d) / ((half * half) / 256 + 1);
+}
+
+int ridge_at_day(int x, int layer) {
+    int h = (H > 0 ? H : 200), w = (W > 0 ? W : 320);
+    if (layer == 0) {                        // дальний холм: пологий, высоко
+        int base = h * 50 / 100;
+        return base - (h * 11 / 100) * hill_val(x + w / 4, w / 3 + 5) / 256;
+    }
+    if (layer == 1) {                        // средний холм: чуть ниже
+        int base = h * 56 / 100;
+        return base - (h * 13 / 100) * hill_val(x + w * 2 / 3, w / 2 + 6) / 256;
+    }
+    int base = h * 74 / 100;                 // травяной передний план
+    int y = base - (h * 12 / 100) * hill_val(x + w / 5, w * 3 / 5 + 4) / 256;
+    y -= (h * 3 / 100) * hill_val(x * 2 + 31, w / 4 + 4) / 256;
+    return y;
+}
+
 // Хребет layer (0=дальний..2=ближний) в точке x: y вершины силуэта.
-// Периоды и амплитуды пропорциональны экрану — пейзаж верен при любом VESA.
+// Дневная и ночная темы — разные функции, ноки вид Selection сохранён (периоды
+// и амплитуды пропорциональны экрану — пейзаж верен при любом VESA).
 int ridge_at(int x, int layer) {
+    if (wall_theme == 1) return ridge_at_day(x, layer);   // дневные холмы
     int h = (H > 0 ? H : 200), w = (W > 0 ? W : 320);
     if (layer == 0) {                      // дальний: пологий, высоко
         int base = h * 58 / 100;
@@ -103,8 +157,14 @@ int ridge_at(int x, int layer) {
 
 // Небо для строки y: три опорные точки градиента. Ниже «заката» цвет
 // остывает к тени — эта зона почти всегда закрыта хребтами.
+// В дневной теме «Bliss Hill» — голубое небо от зенита к светлому горизонту.
 unsigned int sky_color(int y) {
     int h = (H > 0 ? H : 200);
+    if (wall_theme == 1) {                      // дневное небо (без «заката»)
+        int mi = h * 55 / 100;                  // до 55% — синеем к середине
+        if (y <= mi) return mix_col(BW_SKY_TOP, BW_SKY_MID, y * 256 / (mi + 1));
+        return mix_col(BW_SKY_MID, BW_SKY_HZ, (y - mi) * 256 / (h - mi + 1));
+    }
     int hi = h * 40 / 100;                      // до 40% — первая ветвь
     int hz = h * 58 / 100;                      // «линия заката»
     if (y <= hi) return mix_col(RW_SKY_TOP, RW_SKY_MID, y * 256 / (hi + 1));
@@ -143,6 +203,19 @@ unsigned int moon_color(int x, int y, unsigned int sky) {
     return 0;
 }
 
+// Фактура дневной травы: детерминированное «зерно» из трёх тонов на ячейках
+// 3x4 пикселя, подсвеченное у гребня слоя и мягко затенённое к низу экрана.
+unsigned int grass_pixel(int x, int y, int top) {
+    unsigned int hh = (unsigned int)(x / 3 + 1) * 73856093u
+                    ^ (unsigned int)(y / 4) * 19349663u;
+    hh ^= hh >> 13; hh *= 0x5BD1E995u; hh ^= hh >> 15;
+    unsigned int g = (hh % 14u < 5u) ? BW_G1 : (hh % 14u < 11u) ? BW_G2 : BW_G3;
+    unsigned int c = (y < top + 2) ? BW_GRASS_LIT : g;   // блик на гребне слоя
+    int dn = (y * 256) / (H + 1) - 155;                  // глубже к низу экрана
+    if (dn < 0) dn = 0;
+    return mix_col(c, BW_GRASS_DK, dn);                  // мягкое затемнение
+}
+
 // ЦВЕТ ОБОЙ в произвольной точке экрана. Выбирается ближайший (к зрителю)
 // слой, закрывающий точку; небо — только там, куда хребты не дотягиваются.
 unsigned int wallpaper_pixel(int x, int y) {
@@ -151,21 +224,34 @@ unsigned int wallpaper_pixel(int x, int y) {
     if (y >= y2) layer = 2;
     else if (y >= y1) layer = 1;
     else if (y >= y0) layer = 0;
-    if (layer < 0) {                                    // это небо
+    if (wall_theme == 1) {                               // дневная тема
+        if (layer < 0) return sky_color(y);              // чистое небо
+        if (y < 2 + ((layer == 2) ? y2 : (layer == 1) ? y1 : y0)) {   // гребень
+            unsigned int e[3] = { BW_FAR_E, BW_MID_E, BW_GRASS_LIT };
+            return e[layer];
+        }
+        int topy = (layer == 2) ? y2 : (layer == 1) ? y1 : y0;
+        if (layer == 2) return grass_pixel(x, y, topy);  // трава переднего плана
+        static const unsigned int db[2] = { BW_FAR, BW_MID };
+        static const unsigned int dl[2] = { BW_FAR_L, BW_MID_L };
+        int gx = x * 96 / ((W > 0 ? W : 1) + 1);         // свет с «юго-востока»
+        return mix_col(db[layer], dl[layer], gx);
+    }
+    if (layer < 0) {                                     // это небо (ночь)
         unsigned int c = sky_color(y);
-        if (y < (H * 48) / 100) {                       // звёзды — в верхней зоне
+        if (y < (H * 48) / 100) {                        // звёзды — в верхней зоне
             unsigned int st = star_color(x, y);
             if (st) c = st;
         }
-        unsigned int m = moon_color(x, y, c);           // луна поверх неба
+        unsigned int m = moon_color(x, y, c);            // луна поверх неба
         return m ? m : c;
     }
-    static const unsigned int body[3] = { RW_FAR, RW_MID, RW_NEAR };
-    static const unsigned int edge[3] = { RW_FAR_E, RW_MID_E, RW_NEAR_E };
+    static const unsigned int body3[3] = { RW_FAR, RW_MID, RW_NEAR };
+    static const unsigned int edge3[3] = { RW_FAR_E, RW_MID_E, RW_NEAR_E };
     int topy = (layer == 2) ? y2 : (layer == 1) ? y1 : y0;
-    if (y == topy || y == topy + 1)                     // блик по силуэту
-        return edge[layer];
-    return body[layer];
+    if (y == topy || y == topy + 1)                      // блик по силуэту
+        return edge3[layer];
+    return body3[layer];
 }
 int iabs(int x) { return x < 0 ? -x : x; }   // модуль (свой, ведь stdlib нет)
 

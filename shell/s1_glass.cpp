@@ -146,6 +146,7 @@ void draw_round_rect(int x, int y, int w, int h, int r, unsigned int color) {
 #define RW_MAXW 1920
 static int rw_top[3][RW_MAXW];           // вершины трёх хребтов по колонкам
 static int rw_usew = 0, rw_useh = 0;     // под какой экран таблицы
+static int rw_theme = -1;                // под какую тему считали таблицы
 
 static void wallpaper_precompute() {
     rw_usew = W; rw_useh = H;
@@ -157,8 +158,44 @@ static void wallpaper_precompute() {
     }
 }
 
+// Дневная тема «Bliss Hill» — композиция из дешёвых примитивов:
+// небо целыми строками (цвет зависит только от y), холмы FAR/MID колонками
+// с боковой подсветкой, трава ближнего слоя строками с полосами по хэшу.
+static void fill_wallpaper_day() {
+    // 1) небо — строки на всю ширину (перекроется холмами ниже по коду)
+    for (int y = 0; y < H; y++)
+        fill_rect(0, y, W, 1, sky_color(y));
+    // 2) холмы FAR и MID — колонками, поверх неба
+    static const unsigned int db[2] = { BW_FAR, BW_MID };
+    static const unsigned int dl[2] = { BW_FAR_L, BW_MID_L };
+    static const unsigned int de[2] = { BW_FAR_E, BW_MID_E };
+    for (int layer = 0; layer < 2; layer++) {
+        for (int x = 0; x < W; x++) {
+            int t = rw_top[layer][x];
+            if (t < 0) t = 0;
+            if (t < H) {
+                fill_rect(x, t, 1, H - t, mix_col(db[layer], dl[layer], x * 96 / (W + 1)));
+                put_pixel(x, t, de[layer]);                    // гребень (2 строки —
+                if (t + 1 < H) put_pixel(x, t + 1, de[layer]); // как в wallpaper_pixel)
+            }
+        }
+    }
+    // 3) трава ближнего слоя — строчками, только там, где слой виден
+    int ymin = H;
+    for (int x = 0; x < W; x++) { int t = rw_top[2][x]; if (t < ymin) ymin = t; }
+    if (ymin < 0) ymin = 0;
+    for (int y = ymin; y < H; y++)
+        for (int x = 0; x < W; x++)
+            if (y >= rw_top[2][x])
+                put_pixel(x, y, grass_pixel(x, y, rw_top[2][x]));
+}
+
 void fill_wallpaper() {
-    if (rw_usew != W || rw_useh != H) wallpaper_precompute();
+    if (rw_usew != W || rw_useh != H || rw_theme != wall_theme) {
+        wallpaper_precompute();                     // рельеф зависит и от темы
+        rw_theme = wall_theme;
+    }
+    if (wall_theme == 1) { fill_wallpaper_day(); return; }   // дневная тема
     int n = FB_BPP / 8;
 
     // --- небо: колонками от 0 до вершины дальнего хребта (звёзды, луна) ---

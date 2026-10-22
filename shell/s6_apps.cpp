@@ -397,7 +397,7 @@ void files_handle_key(int sc) {
 // --- НАСТРОЙКИ (Settings) ---
 bool set_active = false;             // открыто ли окно
 int  set_sel = 0;                    // выбранная строка
-const int SET_ROWS = 4;              // строка часов + три строки-справки
+const int SET_ROWS = 5;              // часы, видео, ядро, загрузка, тема обоев
 
 // Нарисовать окно настроек
 void draw_settings() {
@@ -429,7 +429,7 @@ void draw_settings() {
             k = sk_str(b, k, " KB / boot area ");
             k = sk_num(b, k, PART_RESERVED);
             k = sk_str(b, k, " sec");
-        } else {
+        } else if (i == 3) {
             k = sk_str(b, k, "Boot: ");
             unsigned short lba = 0;
             int p = boot_partition(&lba);
@@ -440,6 +440,9 @@ void draw_settings() {
             } else {
                 k = sk_str(b, k, (p == 0) ? "? (not in table)" : "(raw boot)");
             }
+        } else {
+            k = sk_str(b, k, "Theme: ");
+            k = sk_str(b, k, (wall_theme == 0) ? "Night Ridge (moon)" : "Bliss Hill (grass)");
         }
         b[k] = 0;
         draw_text(tx, y, b, col);
@@ -470,6 +473,10 @@ void set_handle_key(int sc) {
             draw_settings();
             draw_clock();                       // сразу видно в меню-баре
         }
+        if ((sc == 0x4B || sc == 0x4D) && set_sel == 4) {                             // L/R — тема
+            wall_theme_next();
+            draw_desktop();                     // весь стол с новыми обоями,
+        }                                       // окно настроек перерисуется само
         return;
     }
     if (sc == 0x01 || sc == SC_F3) { set_active = false; win_close_app(APP_SET); draw_desktop(); return; }    // Esc/F3
@@ -477,6 +484,10 @@ void set_handle_key(int sc) {
         clock_24h = !clock_24h;
         draw_settings();
         draw_clock();
+    }
+    if (sc == 0x1C && set_sel == 4) {           // Enter — сменить тему обоев
+        wall_theme_next();
+        draw_desktop();
     }
 }
 // --- ДИСПЕТЧЕР ЗАДАЧ (Task Manager) ---
