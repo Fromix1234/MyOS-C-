@@ -21,7 +21,6 @@ $NASM = "C:\Users\User\AppData\Local\bin\NASM\nasm.exe"
 $QEMU = "C:\Program Files\qemu\qemu-system-i386.exe"
 $BIN  = "C:\Users\User\AppData\Local\Programs\w64devkit\w64devkit\bin"
 $GXX  = "g++"
-$RUSTC = "$env:USERPROFILE\.cargo\bin\rustc.exe"
 $P    = "D:\C++\MyOS"
 Set-Location $P
 
@@ -65,38 +64,45 @@ if ($shellEntry.ToLower() -ne "00400000") { Write-Host "WARN: shell_main at 0x$s
 Write-Host "    shell.bin = $($shell.Length) bytes (entry 0x$shellEntry)" -ForegroundColor Yellow
 
 # ---------------------------------------------------------------------------
-Write-Host "=== 2. Compiling C++ kernel (kernel/kernel.cpp) ===" -ForegroundColor Cyan
-# Rust-компоненты ядра (kernel-rs): no_std staticlib в COFF под
-# i686-pc-windows-gnu. Линкуются тем же MinGW-линкером, что и C++-ядро;
-# граница языков — C ABI. Собирается один раз (от проходов KERNEL_SECTORS
-# не зависит).
-if (Test-Path $RUSTC) {
-    Write-Host "=== 1b. Compiling Rust kernel component (kernel-rs) ===" -ForegroundColor Cyan
-    & $RUSTC --edition 2021 --target i686-pc-windows-gnu --crate-type staticlib -O -C panic=abort "$P\kernel-rs\rs_probe.rs" -o "$P\kernel-rs\librs.a"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel-rs (rustc)" -ForegroundColor Red; exit 1 }
-    if (-not (Test-Path "$P\kernel-rs\librs.a")) { Write-Host "ERROR: kernel-rs/librs.a not created" -ForegroundColor Red; exit 1 }
-} else {
-    Write-Host "WARN: rustc not found - Rust components disabled" -ForegroundColor Yellow
-}
-# Compile TWICE: the first pass learns the kernel size, the second pass bakes
-# that number into the kernel as KERNEL_SECTORS (the 'install' command copies
-# the kernel by sectors and must know how many). The loop recalculates until
-# the value stops changing (normally exactly 2 passes).
-$sectors = 16
-for ($pass = 0; $pass -lt 3; $pass++) {
-    Remove-Item -Force "$P\kernel.o" -ErrorAction SilentlyContinue
-    & $GXX @CXXFLAGS "-DKERNEL_SECTORS=$sectors" -c "$P\kernel\kernel.cpp" -o "$P\kernel.o"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
-    if (-not (Test-Path "$P\kernel.o")) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
-    Remove-Junk "$P\kernel.o" "$P\kernel_clean.o"
-    Write-Host "=== 2. Linking kernel (kernel.ld) ===" -ForegroundColor Cyan
-    & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o" "$P\kernel-rs\librs.a"
-    if (-not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
+# Какой экипаж? По умолчанию — C++-ядро v2.x (эталон). Флаг '-rust' собирает
+# НОВОЕ ядро v3 на Rust (kernel-rs) с тем же адресом загрузки и контрактом
+# точки входа (stage2 прыгает на kernel_main из kernel.ld).
+$UseRust = ($args -contains "-rust")
+if ($UseRust) {
+    Write-Host "=== 2. Compiling Rust kernel (kernel-rs -> kernel.bin) ===" -ForegroundColor Cyan
+    $CARGO = "$env:USERPROFILE\.cargo\bin\cargo.exe"
+    if (-not (Test-Path $CARGO)) { Write-Host "ERROR: cargo not found (install Rust)" -ForegroundColor Red; exit 1 }
+    & $CARGO build --release --target i686-pc-windows-gnu --manifest-path "$P\kernel-rs\Cargo.toml"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling Rust kernel" -ForegroundColor Red; exit 1 }
+    $rustLib = "$P\kernel-rs\target\i686-pc-windows-gnu\release\libmyos_kernel_rs.a"
+    if (-not (Test-Path $rustLib)) { Write-Host "ERROR: Rust staticlib not found" -ForegroundColor Red; exit 1 }
+    & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$rustLib"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking Rust kernel" -ForegroundColor Red; exit 1 }
     & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
     $kernelSize = (Get-Item "$P\kernel.bin").Length
-    $newSectors = [int][Math]::Ceiling($kernelSize / 512) + 1
-    if ($newSectors -eq $sectors) { break }
-    $sectors = $newSectors
+    $sectors = [int][Math]::Ceiling($kernelSize / 512) + 1
+} else {
+    Write-Host "=== 2. Compiling C++ kernel (kernel/kernel.cpp) ===" -ForegroundColor Cyan
+    # Compile TWICE: the first pass learns the kernel size, the second pass bakes
+    # that number into the kernel as KERNEL_SECTORS (the 'install' command copies
+    # the kernel by sectors and must know how many). The loop recalculates until
+    # the value stops changing (normally exactly 2 passes).
+    $sectors = 16
+    for ($pass = 0; $pass -lt 3; $pass++) {
+        Remove-Item -Force "$P\kernel.o" -ErrorAction SilentlyContinue
+        & $GXX @CXXFLAGS "-DKERNEL_SECTORS=$sectors" -c "$P\kernel\kernel.cpp" -o "$P\kernel.o"
+        if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
+        if (-not (Test-Path "$P\kernel.o")) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
+        Remove-Junk "$P\kernel.o" "$P\kernel_clean.o"
+        Write-Host "=== 2. Linking kernel (kernel.ld) ===" -ForegroundColor Cyan
+        & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o"
+        if (-not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
+        & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
+        $kernelSize = (Get-Item "$P\kernel.bin").Length
+        $newSectors = [int][Math]::Ceiling($kernelSize / 512) + 1
+        if ($newSectors -eq $sectors) { break }
+        $sectors = $newSectors
+    }
 }
 Write-Host "    kernel.bin = $kernelSize bytes = $sectors sectors" -ForegroundColor Yellow
 if (($sectors + 3) -gt 192) { Write-Host "ERROR: kernel does not fit the boot area (need $sectors+3, PART_RESERVED=192)" -ForegroundColor Red; exit 1 }
@@ -235,10 +241,16 @@ Set-Name $tab 64 "demo.bin";  Set-Le32 $tab 120 $demoStart; Set-Le32 $tab 124 $d
 [System.Array]::Copy($demo,  0, $final, $demoStart * 512, $demo.Length)   # demo.bin data
 Write-Host "    MyFS on P1: shell.bin @ $dataLba ($shellSecs sec), demo.bin @ $demoStart ($demoSecs sec)" -ForegroundColor Yellow
 
-[System.IO.File]::WriteAllBytes("$P\disk.img", $final)
+try {
+    [System.IO.File]::WriteAllBytes("$P\disk.img", $final)
+} catch {
+    Write-Host "ERROR: cannot write disk.img (QEMU still running? close it first)" -ForegroundColor Red
+    Write-Host "    $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 Write-Host "    disk.img = $($final.Length) bytes (32 MB HDD with MBR table)" -ForegroundColor Green
 
-if ($args[0] -eq "-norun") { Write-Host "Done (no run)."; exit 0 }
+if ($args -contains "-norun") { Write-Host "Done (no run)."; exit 0 }
 
 Write-Host ""
 Write-Host "=== 5. Running in QEMU ===" -ForegroundColor Cyan

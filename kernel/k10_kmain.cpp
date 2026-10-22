@@ -20,14 +20,10 @@ void boot_error_screen(const char* what) {
     for (;;) asm volatile("hlt");
 }
 
-// Rust-компонент ядра (kernel-rs/rs_probe.rs): проверка сборки и C ABI.
-extern "C" void rs_probe();
-
 extern "C" void kernel_main() {
     serial_init();                      // COM1 — ещё до всего (тесты, отладка)
     log_reset();
     log_puts("boot: kernel start (MyOS v2.0)\n");   // метки загрузки: dmesg + COM1
-    rs_probe();                         // прототип: Rust в ring 0 (см. kernel-rs)
     init_video();                       // видео: «записка» stage2 (VESA VBE)
     mem_init((unsigned int)fb);         // страницы: ядро 0..4 МБ, программы 4..8 МБ
     gdt_init();                         // сегменты ring 0/3 + TSS (как в Linux)

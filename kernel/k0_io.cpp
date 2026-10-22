@@ -65,11 +65,6 @@ void log_putc(char c) {
 }
 void log_puts(const char* s) { while (*s) log_putc(*s++); }
 
-// --- Мост в Rust-компоненты ядра (kernel-rs) --------------------------------
-// Rust-код объявляет её как extern "C" fn k_puts(*const u8) — граница языков
-// проходит по обычному C ABI, без общих заголовков и магии.
-extern "C" void k_puts(const char* s) { log_puts(s); }
-
 // Прочитать из лога не больше max байт. Возврат: сколько прочитано.
 unsigned int log_read(char* dst, unsigned int max) {
     unsigned int n = 0;
