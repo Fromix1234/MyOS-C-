@@ -695,3 +695,8 @@ Ubuntu).
   и только в его служебную зону (первые 192 сектора) — файлы MyFS не задеваются.
   Проверено автотестом: установка в P2, перезагрузка — система грузится из P2,
   а `ls 3` показывает те же файлы MyFS, что были до установки.
+
+## Pre-release v2.2
+
+A new pre-release (v2.2-pre) with improved mouse driver (IntelliMouse support, scroll wheel) and a build_iso.ps1 script to generate a bootable ISO. Download the ISO from the release assets.
+
