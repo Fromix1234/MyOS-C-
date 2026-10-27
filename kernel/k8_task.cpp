@@ -87,11 +87,11 @@ int task_create(const char* name, unsigned int entry, unsigned int ustack, int p
     *(--sp) = entry;                // EIP — вход программы
     *(--sp) = 0;                    // ERR
     *(--sp) = 32;                   // VEC (как будто тик таймера)
+    for (int k = 0; k < 8; k++) *(--sp) = 0;     // pushal (EAX..EDI — мы вышли из iret)
     *(--sp) = 0x23;                 // DS
     *(--sp) = 0x23;                 // ES
     *(--sp) = 0x23;                 // FS
     *(--sp) = 0x23;                 // GS
-    for (int k = 0; k < 8; k++) *(--sp) = 0;     // pushal (EAX..EDI — мы вышли из iret)
     *(--sp) = (unsigned int)irq_exit;            // «возврат» стаба
     *(--sp) = 0;                    // EBP (task_switch pop-ит их в обратном порядке)
     *(--sp) = 0;                    // EBX

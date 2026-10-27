@@ -6,15 +6,23 @@
 #    - shell.bin  (ring 3): the whole desktop/console/apps, runs from MyFS;
 #    - demo.bin   (ring 3): test program started by the 'ring3' command.
 # ===========================================================================
-#  NOTE: messages are in English on purpose - Cyrillic in .ps1 breaks
-#  PowerShell 5.1 encoding. The real code (.asm/.cpp) has Russian comments.
-# ===========================================================================
 
-$NASM = "C:\Users\User\AppData\Local\bin\NASM\nasm.exe"
-$BIN  = "C:\Users\User\AppData\Local\Programs\w64devkit\w64devkit\bin"
-$GXX  = "g++"
-$P    = "D:\C++\MyOS"
+# АБСОЛЮТНЫЕ ПУТИ ДЛЯ ГАРАНТИРОВАННОГО ЗАПУСКА
+$NASM = "C:\Users\fRoMiXpc\AppData\Local\bin\NASM\nasm.exe"
+$BIN  = "C:\Users\fRoMiXpc\msys64\msys64\mingw32\bin"
+$GXX  = "$BIN\g++.exe"
+$P    = "C:\Users\fRoMiXpc\MyOS-C-"
 Set-Location $P
+
+# Проверка наличия инструментов перед началом
+if (-not (Test-Path $NASM)) { Write-Host "ERROR: NASM not found at $NASM" -ForegroundColor Red; exit 1 }
+if (-not (Test-Path "$BIN\ld.exe")) {
+    Write-Host "ERROR: MinGW-w64 i686 not found at $BIN" -ForegroundColor Red
+    Write-Host "Install it in MSYS2: pacman -S mingw-w64-i686-gcc" -ForegroundColor Yellow
+    exit 1
+}
+# cc1plus.exe лежит отдельно от g++.exe и ищет свои DLL в PATH.
+$env:Path = "$BIN;$env:Path"
 
 $CXXFLAGS = @("-m32","-ffreestanding","-fno-exceptions","-fno-rtti","-fno-pie",
               "-fno-stack-protector","-nostdlib","-nostartfiles","-mno-sse",
@@ -22,7 +30,8 @@ $CXXFLAGS = @("-m32","-ffreestanding","-fno-exceptions","-fno-rtti","-fno-pie",
               "-Os","-fno-strict-aliasing")
 
 function Remove-Junk($obj, $clean) {
-    & "$BIN\objcopy.exe" --remove-section=.comment --remove-section=.note --remove-section=.note.GNU-stack $obj $clean
+    $tool = if ($BIN) { "$BIN\objcopy.exe" } else { "objcopy" }
+    & $tool --remove-section=.comment --remove-section=.note --remove-section=.note.GNU-stack $obj $clean
 }
 
 # ---------------------------------------------------------------------------
@@ -38,32 +47,47 @@ Write-Host "=== 1. Building the GUI shell (shell/shell.cpp -> shell.bin) ===" -F
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling shell" -ForegroundColor Red; exit 1 }
 if (-not (Test-Path "$P\shell\shell.o")) { Write-Host "ERROR compiling shell" -ForegroundColor Red; exit 1 }
 Remove-Junk "$P\shell\shell.o" "$P\shell\shell_clean.o"
-& "$BIN\ld.exe" -m i386pe --image-base 0 -T "$P\shell\shell.ld" -o "$P\shell\shell.exe" "$P\shell\shell_clean.o"
+
+$ldTool = if ($BIN) { "$BIN\ld.exe" } else { "ld" }
+& $ldTool -m i386pe --image-base 0 -T "$P\shell\shell.ld" -o "$P\shell\shell.exe" "$P\shell\shell_clean.o"
 if (-not (Test-Path "$P\shell\shell.exe")) { Write-Host "ERROR linking shell" -ForegroundColor Red; exit 1 }
-& "$BIN\objcopy.exe" -O binary "$P\shell\shell.exe" "$P\shell\shell.bin"
+
+$objcopyTool = if ($BIN) { "$BIN\objcopy.exe" } else { "objcopy" }
+& $objcopyTool -O binary "$P\shell\shell.exe" "$P\shell\shell.bin"
 $shell = [System.IO.File]::ReadAllBytes("$P\shell\shell.bin")
 if ($shell.Length -gt 1048576) { Write-Host "ERROR: shell.bin is bigger than 1 MB (snapshot zone)" -ForegroundColor Red; exit 1 }
-$nmShell = & "$BIN\nm.exe" "$P\shell\shell.exe" | Select-String "T _shell_main" | Select-Object -First 1
+$nmTool = if ($BIN) { "$BIN\nm.exe" } else { "nm" }
+$nmShell = & $nmTool "$P\shell\shell.exe" | Select-String "T _shell_main" | Select-Object -First 1
 if (-not $nmShell) { Write-Host "ERROR: shell_main not found" -ForegroundColor Red; exit 1 }
 $shellEntry = ($nmShell.ToString().Trim() -split "\s+")[0]
 if ($shellEntry.ToLower() -ne "00400000") { Write-Host "WARN: shell_main at 0x$shellEntry, expected 0x00400000" -ForegroundColor Yellow }
 Write-Host "    shell.bin = $($shell.Length) bytes (entry 0x$shellEntry)" -ForegroundColor Yellow
+# Образ оболочки для boot.img (ISO): кладём после MyFS, но внутри первых
+# 2880 секторов (1.44 МБ) — чтобы El Torito-флоппи его видел.
+$shellSecs = [int][Math]::Ceiling($shell.Length / 512)
+$blobLba   = 2560
+$blobSecs  = $shellSecs
+if (($blobLba + $blobSecs) -gt 2880) {
+    Write-Host "ERROR: shell.bin too big for the 1.44 MB ISO boot image ($blobSecs sectors)" -ForegroundColor Red
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 $UseRust = ($args -contains "-rust")
 if ($UseRust) {
     Write-Host "=== 2. Compiling Rust kernel (kernel-rs -> kernel.bin) ===" -ForegroundColor Cyan
     $CARGO = "$env:USERPROFILE\.cargo\bin\cargo.exe"
-    if (-not (Test-Path $CARGO)) { Write-Host "ERROR: cargo not found (install Rust)" -ForegroundColor Red; exit 1 }
-    $env:PATH = "$BIN;" + $env:PATH
+    if (-not (Test-Path $CARGO)) { Write-Host "ERROR: cargo not found" -ForegroundColor Red; exit 1 }
     $env:RUSTFLAGS = "-Zfunction-sections=yes"
     & $CARGO +nightly-x86_64-pc-windows-gnu build --release --target i686-pc-windows-gnu -Z build-std=core --manifest-path "$P\kernel-rs\Cargo.toml"
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling Rust kernel" -ForegroundColor Red; exit 1 }
     $rustLib = "$P\kernel-rs\target\i686-pc-windows-gnu\release\libmyos_kernel_rs.a"
     if (-not (Test-Path $rustLib)) { Write-Host "ERROR: Rust staticlib not found" -ForegroundColor Red; exit 1 }
-    & "$BIN\ld.exe" -m i386pe --gc-sections -T "$P\kernel-rs\kernel.ld" -o "$P\kernel.exe" "$rustLib"
+    $ldTool = if ($BIN) { "$BIN\ld.exe" } else { "ld" }
+    & $ldTool -m i386pe --image-base 0 --gc-sections -T "$P\kernel-rs\kernel.ld" -o "$P\kernel.exe" "$rustLib"
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking Rust kernel" -ForegroundColor Red; exit 1 }
-    & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
+    $objcopyTool = if ($BIN) { "$BIN\objcopy.exe" } else { "objcopy" }
+    & $objcopyTool -O binary "$P\kernel.exe" "$P\kernel.bin"
     $kernelSize = (Get-Item "$P\kernel.bin").Length
     $sectors = [int][Math]::Ceiling($kernelSize / 512) + 1
 } else {
@@ -75,9 +99,11 @@ if ($UseRust) {
         if ($LASTEXITCODE -ne 0) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
         if (-not (Test-Path "$P\kernel.o")) { Write-Host "ERROR compiling kernel.cpp" -ForegroundColor Red; exit 1 }
         Remove-Junk "$P\kernel.o" "$P\kernel_clean.o"
-        & "$BIN\ld.exe" -m i386pe -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o"
-        if (-not (Test-Path "$P\kernel.exe")) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
-        & "$BIN\objcopy.exe" -O binary "$P\kernel.exe" "$P\kernel.bin"
+        $ldTool = if ($BIN) { "$BIN\ld.exe" } else { "ld" }
+        & $ldTool -m i386pe --image-base 0 -T "$P\kernel.ld" -o "$P\kernel.exe" "$P\kernel_clean.o"
+        if ($LASTEXITCODE -ne 0) { Write-Host "ERROR linking" -ForegroundColor Red; exit 1 }
+        $objcopyTool = if ($BIN) { "$BIN\objcopy.exe" } else { "objcopy" }
+        & $objcopyTool -O binary "$P\kernel.exe" "$P\kernel.bin"
         $kernelSize = (Get-Item "$P\kernel.bin").Length
         $newSectors = [int][Math]::Ceiling($kernelSize / 512) + 1
         if ($newSectors -eq $sectors) { break }
@@ -87,7 +113,8 @@ if ($UseRust) {
 Write-Host "    kernel.bin = $kernelSize bytes = $sectors sectors" -ForegroundColor Yellow
 if (($sectors + 3) -gt 192) { Write-Host "ERROR: kernel does not fit the boot area (need $sectors+3, PART_RESERVED=192)" -ForegroundColor Red; exit 1 }
 
-$nmLine = & "$BIN\nm.exe" "$P\kernel.exe" | Select-String "T _kernel_main" | Select-Object -First 1
+$nmTool = if ($BIN) { "$BIN\nm.exe" } else { "nm" }
+$nmLine = & $nmTool "$P\kernel.exe" | Select-String "T _kernel_main" | Select-Object -First 1
 if (-not $nmLine) { Write-Host "ERROR: kernel_main not found" -ForegroundColor Red; exit 1 }
 $entryHex = ($nmLine.ToString().Trim() -split "\s+")[0]
 $entryAddr = "0x" + $entryHex
@@ -99,7 +126,7 @@ Write-Host "=== 3. Assembling bootloader (boot.asm + vbr.asm + stage2.asm) ===" 
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR boot.asm" -ForegroundColor Red; exit 1 }
 & $NASM -f bin "$P\vbr.asm" -o "$P\vbr.bin"
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR vbr.asm" -ForegroundColor Red; exit 1 }
-& $NASM -f bin "-dKERNEL_ENTRY=$entryAddr" "-dKERNEL_SECTORS=$sectors" "$P\stage2.asm" -o "$P\stage2.bin"
+& $NASM -f bin "-dKERNEL_ENTRY=$entryAddr" "-dKERNEL_SECTORS=$sectors" "-dSHELL_BLOB_LBA=$blobLba" "-dSHELL_BLOB_SECTORS=$blobSecs" "-dSHELL_BLOB_BYTES=$($shell.Length)" "$P\stage2.asm" -o "$P\stage2.bin"
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR stage2.asm" -ForegroundColor Red; exit 1 }
 
 if ((Get-Item "$P\boot.bin").Length -ne 512)    { Write-Host "ERROR: boot.bin is not 512 bytes" -ForegroundColor Red; exit 1 }
@@ -137,9 +164,22 @@ function Set-PartEntry($img, $idx, $flag, $type, $lba, $sectors) {
     $img[$off + 14] = [byte](($sectors -shr 16) -band 0xFF)
     $img[$off + 15] = [byte](($sectors -shr 24) -band 0xFF)
 }
-Set-PartEntry $final 0 0x80 0x83 2048  16384
+$P1LBA = 2048
+Set-PartEntry $final 0 0x80 0x83 $P1LBA 16384
 Set-PartEntry $final 1 0x00 0x83 18432 16384
 Set-PartEntry $final 2 0x00 0x83 34816 16384
+
+# --- Загрузочная зона ВНУТРИ раздела P1 --------------------------------
+# MBR читает VBR не с сектора 1 диска, а с начала активного раздела.
+# Поэтому VBR/stage2/ядро дублируются в P1: +0, +1..+2, +3...
+$vbrPart = [byte[]]$vbr.Clone()
+$vbrPart[504] = [byte]($P1LBA -band 0xFF)
+$vbrPart[505] = [byte](($P1LBA -shr 8) -band 0xFF)
+$vbrPart[506] = [byte](($P1LBA -shr 16) -band 0xFF)
+$vbrPart[507] = [byte](($P1LBA -shr 24) -band 0xFF)
+[System.Array]::Copy($vbrPart,       0, $final, $P1LBA * 512, 512)
+[System.Array]::Copy($stage2Padded,  0, $final, ($P1LBA + 1) * 512, 1024)
+[System.Array]::Copy($kernel,        0, $final, ($P1LBA + 3) * 512, $kernel.Length)
 
 function Set-Le16($arr, $off, $val) {
     $arr[$off]     = [byte]($val -band 0xFF)
@@ -154,11 +194,9 @@ function Set-Le32($arr, $off, $val) {
 function Set-Name($arr, $off, $s) {
     for ($i = 0; $i -lt $s.Length; $i++) { $arr[$off + $i] = [byte][char]$s[$i] }
 }
-$P1LBA     = 2048
 $sbLba     = $P1LBA + 192
 $tabLba    = $sbLba + 1
 $dataLba   = $sbLba + 2
-$shellSecs = [int][Math]::Ceiling($shell.Length / 512)
 $demoStart = $dataLba + $shellSecs
 $demoSecs  = [int][Math]::Ceiling($demo.Length / 512)
 $dataPtr   = $demoStart + $demoSecs
@@ -178,10 +216,17 @@ Set-Name $tab 64 "demo.bin";  Set-Le32 $tab 120 $demoStart; Set-Le32 $tab 124 $d
 [System.Array]::Copy($tab, 0, $final, $tabLba * 512, 512)
 [System.Array]::Copy($shell, 0, $final, $dataLba * 512, $shell.Length)
 [System.Array]::Copy($demo,  0, $final, $demoStart * 512, $demo.Length)
+# Копия shell.bin для ISO-загрузки (stage2 читает её при DL=0x00).
+if ($blobLba -lt $dataPtr) {
+    Write-Host "ERROR: shell blob LBA overlaps MyFS data area (blob=$blobLba data=$dataPtr)" -ForegroundColor Red
+    exit 1
+}
+[System.Array]::Copy($shell, 0, $final, $blobLba * 512, $shell.Length)
 try {
     [System.IO.File]::WriteAllBytes("$P\disk.img", $final)
 } catch {
-C:\Users\fRoMiXpc\MyOS-C-\build.ps1
+    Write-Host "ERROR: cannot write disk.img" -ForegroundColor Red
+    exit 1
 }
 Write-Host "    disk.img = $($final.Length) bytes (32 MB HDD with MBR table)" -ForegroundColor Green
 if ($args -contains "-norun") { Write-Host "Done (no run)."; exit 0 }

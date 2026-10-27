@@ -53,22 +53,35 @@ MyOS построена на принципе разделения ядра и �
 ---
 
 ## 📦 Quick Start (Oracle VM VirtualBox)
-Для запуска проекта используйте следующие шаги:
 
-### 1. Сборка образа
-Запустите скрипт в PowerShell:
+### Готовые образы релиза v3.1-pre
+- **`MyOS.vdi`** — виртуальный жёсткий диск для VirtualBox;
+- **`MyOS.iso`** — загрузочный ISO (El Torito, эмуляция 1.44 MB floppy).
+
+**Вариант A — VDI (рекомендуется):**
+1. Создайте VM: **Type** — Other, **Version** — Other/32-bit, RAM — 128 MB.
+2. **System → Motherboard**: EFI выключен (MyOS использует BIOS/Legacy).
+3. **Storage** → контроллер **IDE** → добавьте `MyOS.vdi` как жёсткий диск.
+4. Запустите VM.
+
+**Вариант B — ISO:**
+1. Создайте VM без жёсткого диска (или оставьте существующий).
+2. **Storage** → **IDE** → DVD-привод → выберите `MyOS.iso`.
+3. **System → Motherboard → Boot Order**: оптический привод первым.
+4. Запустите VM. Stage2 сам загрузит оболочку из ISO, ATA-диск не нужен.
+
+### Сборка из исходников
 ```powershell
 cd MyOS-C-
-powershell -ExecutionPolicy Bypass -File build.ps1 -rust
+powershell -ExecutionPolicy Bypass -File build.ps1
+powershell -ExecutionPolicy Bypass -File build_iso.ps1
 ```
-*Скрипт создаст файл `disk.img` в корне проекта.*
-
-### 2. Запуск в VirtualBox
-1. Создайте новую виртуальную машину (**Type**: Other, **Version**: Other/32-bit).
-2. В разделе **Storage (Носители)** добавьте контроллер IDE.
-3. Добавьте существующий жесткий диск $\rightarrow$ выберите ваш `disk.img`.
-4. В настройках **System $\rightarrow$ Motherboard** убедитесь, что включена опция **Enable EFI** (выключена, так как MyOS использует BIOS/Legacy).
-5. Запустите машину.
+`build.ps1` создаёт `disk.img` (32 MB HDD). `build_iso.ps1` создаёт загрузочный
+`MyOS.iso` **без внешних утилит** (собственный генератор ISO9660 + El Torito).
+Для VDI:
+```powershell
+& "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" convertfromraw disk.img MyOS.vdi --format VDI
+```
 
 ---
 

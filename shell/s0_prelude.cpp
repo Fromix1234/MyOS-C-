@@ -19,19 +19,19 @@ const unsigned int C_WHITE  = 0xF3F5F9;   // основной текст (поч
 const unsigned int C_RED    = 0xFF5F57;   // «светофор» окна: красная кнопка
 const unsigned int C_YELLOW = 0xFEBC2E;   // ...жёлтая
 const unsigned int C_GREEN  = 0x28C840;   // ...зелёная
-// Цвета «стекла» (тусклые — они ложатся ПОВЕРХ фона полупрозрачно):
-const unsigned int C_GLASS_TITLE  = 0x262A38;   // шапка окна
-const unsigned int C_GLASS_BODY   = 0x0B0E17;   // тело окна (почти чёрное)
-const unsigned int C_GLASS_DOCK   = 0x2A3040;   // плашка дока
-const unsigned int C_GLASS_ICON   = 0x171A26;   // подложка иконки
-const unsigned int C_GLASS_ICON_HV = 0x272C3C;  // ...под курсором (светлее)
-const unsigned int C_GLASS_MBAR   = 0x141722;   // меню-бар
-const unsigned int C_GLASS_TILE   = 0x232839;   // плитка Activities
+// Цвета «стекла» (премиальный темный стиль CEO Edition):
+const unsigned int C_GLASS_TITLE  = 0x1A1D26;   // Глубокий антрацит для шапки
+const unsigned int C_GLASS_BODY   = 0x080A10;   // Почти черный для тела окна
+const unsigned int C_GLASS_DOCK   = 0x1C2030;   // Темный графит для дока
+const unsigned int C_GLASS_ICON   = 0x121520;   // Подложка иконки
+const unsigned int C_GLASS_ICON_HV = 0x2D3245;  // Светлый акцент при наведении
+const unsigned int C_GLASS_MBAR   = 0x0F111A;   // Верхняя панель
+const unsigned int C_GLASS_TILE   = 0x1E2232;   // Плитки Activities
 // Рамки и выделение:
-const unsigned int C_EDGE_F   = 0x8A92A6;  // контур окна В ФОКУСЕ
-const unsigned int C_EDGE     = 0x4C5266;  // контур окна БЕЗ фокуса
-const unsigned int C_ACCENT   = 0x9DB2FF;  // выделение (плитки, выбор в доке)
-const unsigned int C_TEXT_DIM = 0x9BA2B3;  // вторичный текст/иконки статуса
+const unsigned int C_EDGE_F   = 0xFFFFFF;  // Чисто белый контур В ФОКУСЕ (макс. контраст)
+const unsigned int C_EDGE     = 0x404455;  // Тусклый серый БЕЗ фокуса
+const unsigned int C_ACCENT   = 0x00BFFF;  // Deep Sky Blue для выделения активных элементов
+const unsigned int C_TEXT_DIM = 0x707585;  // Приглушенный текст
 
 // ===========================================================================
 //  ОБОИ «NIGHT RIDGE» — ночной горный пейзаж (тёмная тема по концепту)

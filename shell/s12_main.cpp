@@ -11,7 +11,9 @@
 
 extern "C" __attribute__((section(".text.entry"))) void shell_main() {
     // --- 1) видео: спрашиваем у ядра, где кадровый буфер ---------------------
+    sys_debug("Shell: start");
     init_video();                        // SYS_FB -> fb/W/H/FB_PITCH/FB_BPP/каналы
+    sys_debug("Shell: after init_video");
     init_layout();                       // окно консоли — под текущий экран
     init_desktop_layout();               // док и About — по центру экрана
 
@@ -33,6 +35,7 @@ extern "C" __attribute__((section(".text.entry"))) void shell_main() {
     demo_pid = -1;
 
     draw_desktop();                      // рабочий стол: обои, меню-бар, док
+    sys_debug("Shell: after draw_desktop");
     cursor_show();                       // и стрелка-курсор поверх всего
 
     // --- 3) главный цикл (как v1.2 + сбор ввода и лог ядра) ------------------

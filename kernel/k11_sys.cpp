@@ -308,6 +308,15 @@ extern "C" void cpu_fault(unsigned int* regs) {
     print_dec(eip);
     cmd_print(" addr=");
     print_dec(cr2);
+    cmd_print(" cs="); print_dec(regs[15]);
+    cmd_print(" ds="); print_dec(regs[3]);
+    cmd_print(" es="); print_dec(regs[2]);
+    cmd_print(" fs="); print_dec(regs[1]);
+    cmd_print(" gs="); print_dec(regs[0]);
+    cmd_print(" eax="); print_dec(regs[11]);
+    cmd_print(" ebx="); print_dec(regs[8]);
+    cmd_print(" uesp="); print_dec(regs[17]);
+    cmd_print(" ss="); print_dec(regs[18]);
     cmd_print("\nSystem halted.\n");
     for (;;) asm volatile("hlt");
 }

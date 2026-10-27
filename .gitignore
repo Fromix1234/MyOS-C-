@@ -26,3 +26,9 @@ diffimg.ps1
 regression_*.log
 nt_*.png
 c_*.png
+
+# --- Готовые образы релиза (загружаются в GitHub Releases, не в git) ---
+*.vdi
+*.iso
+boot.img
+serial.log

@@ -84,8 +84,56 @@ void draw_menubar() {
     draw_round_rect(8, 4, 16, 16, 5, C_ACCENT);
     fill_circle(16, 12, 3, C_ACCENT);
     draw_text(30, 4, "MyOS", C_WHITE);
+    // Версия сборки — аккуратная «пилюля» рядом с логотипом (только на широких
+    // экранах, чтобы не наезжать на батарею и часы в 320-колоночном режиме).
+    if (W >= 640) {
+        fill_glass(72, 5, 120, 14, 7, C_GLASS_ICON, GLASS_ICON);
+        draw_round_rect(72, 5, 120, 14, 7, C_EDGE);
+        draw_text(80, 4, "3.1 pre-release", C_ACCENT);
+    }
     draw_battery(W - 92, 12);                                 // справа — заряд
     draw_clock();                                             // и часы
+}
+
+// ===========================================================================
+//  ФИРМЕННЫЙ БЛОК НА РАБОЧЕМ СТОЛЕ
+// ===========================================================================
+//  Стеклянная карточка с подписью проекта и предупреждением о статусе
+//  pre-release. Рисуется в полном кадре ПОД окнами: если приложение откроют,
+//  оно естественно перекроет карточку, а после закрытия рабочий стол
+//  перерисуется и карточка вернётся.
+void draw_branding() {
+    const char* title = "MyOS 3.1  Night Ridge";
+    const char* author = "Design by CEO FROMIX";
+    const char* devs = "You can be on the list of developers.";
+    const char* warn = "WARNING!!! Project now in pre-release";
+
+    int bw = 392;                                  // ширина карточки
+    if (bw > W - 56) bw = W - 56;
+    if (bw < 220) bw = W - 24;
+    int bh = 100;
+    int bx = 28;
+    int by = MB_H + 22;
+    if (by + bh > H - 120) {                       // совсем низкий экран
+        bh = H - by - 120;
+        if (bh < 60) return;
+    }
+
+    fill_glass(bx, by, bw, bh, 14, C_GLASS_TILE, GLASS_TILE);
+    draw_round_rect(bx, by, bw, bh, 14, C_EDGE);
+    // Акцентная полоска слева — «подпись» дизайн-системы.
+    fill_rect(bx + 1, by + 16, 3, bh - 32, C_ACCENT);
+    // Мягкий блик по верхней кромке.
+    dither_over(bx + 14, by + 1, bw - 28, 1, C_WHITE, 5);
+
+    int tx = bx + 18;
+    int ty = by + 12;
+    draw_text(tx, ty, title, C_WHITE);
+    draw_text(tx, ty + 20, author, C_WHITE);
+    draw_text(tx, ty + 40, devs, C_TEXT_DIM);
+    draw_text(tx, ty + 60, warn, C_YELLOW);
+    // Маленькая точка-статус рядом с предупреждением.
+    fill_circle(tx - 8, ty + 68, 2, C_YELLOW);
 }
 
 // --- Док (панель приложений внизу экрана) ---
@@ -220,7 +268,7 @@ void draw_about() {
     draw_window_frame(ABT_X, ABT_Y, ABT_W, ABT_H, "About MyOS");
     int tx = ABT_X + 10;                 // левый край текста
     int ty = ABT_Y + TITLE_H + 8;        // первая строка — сразу под шапкой
-    draw_text(tx, ty, "MyOS v2.0 (Night Ridge)", TEXT_COL);
+    draw_text(tx, ty, "MyOS v3.1 pre-release", TEXT_COL);
 
     // Строка о загрузке: «Boot: P1 (lba=2048)» — собираем вручную (нет sprintf)
     unsigned short lba = 0;

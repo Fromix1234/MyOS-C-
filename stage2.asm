@@ -42,6 +42,18 @@
 %ifndef KERNEL_ENTRY
 %define KERNEL_ENTRY 0x10000
 %endif
+; Образ оболочки, положенный в конец boot.img для загрузки с ISO/флоппи.
+; При загрузке с жёсткого диска (DL=0x80) этот блок не читается — ядро
+; возьмёт shell.bin из MyFS, как раньше.
+%ifndef SHELL_BLOB_LBA
+%define SHELL_BLOB_LBA 2560
+%endif
+%ifndef SHELL_BLOB_SECTORS
+%define SHELL_BLOB_SECTORS 216
+%endif
+%ifndef SHELL_BLOB_BYTES
+%define SHELL_BLOB_BYTES 110592
+%endif
 %define PREF_COUNT 6          ; сколько разрешений в таблице предпочтений
 
 stage2:
@@ -115,8 +127,61 @@ stage2:
     jnz .sector_loop
 
 .loaded:
+    ; --- ISO/флоппи: заранее положить shell.bin в 0x30000 ------------------
+    ; BIOS загрузил нас с эмулированного флоппи (DL=0x00) — значит, это
+    ; El Torito ISO. Читаем образ оболочки из конца boot.img и оставляем
+    ; ядру «записку» 0x0520, чтобы оно не трогало ATA/MyFS на CD-приводе.
+    cmp byte [boot_drive], 0
+    jne .no_preload
+    mov ax, SHELL_BLOB_LBA
+    mov [cur_lba], ax
+    mov word [remaining], SHELL_BLOB_SECTORS
+    mov ax, 0x3000
+    mov es, ax
+    xor bx, bx
+.preload_loop:
+    mov ax, [cur_lba]
+    call lba_to_chs
+    mov bp, 4
+.preload_try:
+    mov dl, [boot_drive]
+    xor ah, ah
+    int 0x13
+    mov dl, [boot_drive]
+    mov ch, [cylin]
+    mov cl, [secs]
+    mov dh, [head]
+    mov ah, 0x02
+    mov al, 1
+    int 0x13
+    jnc .preload_ok
+    dec bp
+    jnz .preload_try
+    jmp .disk_error
+.preload_ok:
+    add bx, 512
+    jnc .preload_no_seg
+    mov ax, es
+    add ax, 0x1000
+    mov es, ax
+.preload_no_seg:
+    inc word [cur_lba]
+    dec word [remaining]
+    jnz .preload_loop
+    ; «Записка»: magic, точный размер, адрес и номер загрузочного диска.
+    mov dword [0x0520], 0x504C4443      ; 'CDLP'
+    mov dword [0x0524], SHELL_BLOB_BYTES
+    mov dword [0x0528], 0x00030000
+    movzx eax, byte [boot_drive]
+    mov [0x052C], eax
+.no_preload:
     ; --- Видеорежим VESA (пока в реальном режиме — BIOS доступен) ---
     call vesa_set
+
+    ; --- A20: без него всё выше 1 МБ заворачивается в младший мегабайт ---
+    ; (VirtualBox после BIOS оставляет A20 выключенным; shell грузится
+    ;  в 0x100000, поэтому без этого ядро затирает собственный код.)
+    call enable_a20
 
     ; --- 32-битный защищённый режим ---
     cli                     ; запретить прерывания
@@ -165,6 +230,20 @@ print:
     mov ah, 0x0E
     int 0x10
     jmp print
+.done:
+    ret
+
+; --- Включить линию A20 (доступ к памяти выше 1 МБ) -----------------------
+; Сначала быстрый способ через порт 0x92 (PS/2 System Control Port A).
+; Если он недоступен — классическая последовательность через контроллер
+; клавиатуры (0x64/0x60): команда 0xD1 (write output port), данные 0xDF.
+enable_a20:
+    in  al, 0x92
+    test al, 0x02
+    jnz .done
+    or  al, 0x02
+    and al, 0xFE            ; бит 0 = fast reset, его трогать нельзя
+    out 0x92, al
 .done:
     ret
 

@@ -65,6 +65,12 @@ void log_putc(char c) {
 }
 void log_puts(const char* s) { while (*s) log_putc(*s++); }
 
+// Hex-вывод для отладки загрузки (serial.log). Без stdio.
+void log_hex(unsigned int v) {
+    const char* h = "0123456789ABCDEF";
+    for (int i = 28; i >= 0; i -= 4) log_putc(h[(v >> i) & 0xF]);
+}
+
 // Прочитать из лога не больше max байт. Возврат: сколько прочитано.
 unsigned int log_read(char* dst, unsigned int max) {
     unsigned int n = 0;

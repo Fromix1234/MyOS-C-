@@ -78,6 +78,7 @@ void draw_desktop() {
     comp_full = true;                        // рисуем полный кадр — стекло можно
     fill_wallpaper();
     draw_menubar();
+    draw_branding();                         // фирменная карточка под окнами
     for (int z = 1; z <= win_ztop; z++)
         for (int a = 0; a < APP_N; a++)
             if (app_is_open(a) && win_z[a] == z) draw_app(a);

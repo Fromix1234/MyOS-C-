@@ -29,8 +29,9 @@ void draw_splash() {
     int lx = (W - lw) / 2, ly = H / 2 - 100;
     draw_text_big(lx, ly, logo, scale, TEXT_COL);        // логотип
     fill_rect(lx, ly + 16 * scale + 8, lw, 3, TEXT_COL); // линия под ним
-    const char* sub = "mini operating system";
-    draw_text((W - 21 * 8) / 2, ly + 16 * scale + 24, sub, TEXT_COL);
+    const char* sub = "v3.1 pre-release";
+    int sn = 0; while (sub[sn]) sn++;
+    draw_text((W - sn * 8) / 2, ly + 16 * scale + 24, sub, TEXT_COL);
     // полоса загрузки
     int bw = 320, bh = 14;
     int bx = (W - bw) / 2, by = ly + 16 * scale + 64;

@@ -56,28 +56,48 @@ void mouse_reset() {
     ms_h = 0; ms_t = 0; ms_cycle = 0; mouse_extended = false; mouse_packet_len = 3; mouse_wheel = 0;
 }
 
+// Forward declaration: the command helper is defined below.
+int mouse_cmd(unsigned char v);
+
 // Helper: send the "Set Sample Rate" command and wait for ACK
 static unsigned char mouse_set_sample_rate(unsigned char rate) {
     int ack = mouse_cmd(0xF3);
-    if (ack != 0xFA) return ack; // not ACK, abort
-    return mouse_cmd(rate);
+    if (ack != 0xFA) return (unsigned char)ack; // not ACK, abort
+    return (unsigned char)mouse_cmd(rate);
+}
+
+// Read one byte from the auxiliary port with a short timeout (-1 = none).
+static int mouse_read_byte(void) {
+    for (int i = 0; i < 100000; i++) {
+        unsigned char st = inb(0x64);
+        if (st & 0x01) {
+            unsigned char d = inb(0x60);
+            if (st & 0x20) return (int)d;   // bit 5 = data came from the mouse
+        }
+    }
+    return -1;
 }
 
 // Try to enable IntelliMouse (4‑byte packets) using the standard 200‑100‑80 sequence.
 // Returns true if the mouse reports an extended ID (0x03 or 0x04).
 static bool enable_intel_mouse(void) {
+    // Flush stale keyboard/ACK bytes before the magic sequence.
+    for (int i = 0; i < 32 && (inb(0x64) & 0x01); i++) inb(0x60);
     // Set sample rates 200, 100, 80
     if (mouse_set_sample_rate(200) != 0xFA) return false;
     if (mouse_set_sample_rate(100) != 0xFA) return false;
     if (mouse_set_sample_rate(80)  != 0xFA) return false;
-    // Request ID
-    int id = mouse_cmd(0xF2);
+    // Request ID: first ACK, then the actual device id.
+    if (mouse_cmd(0xF2) != 0xFA) return false;
+    int id = mouse_read_byte();
     // IDs 0x03 (IntelliMouse) and 0x04 (IntelliMouse with scroll wheel) indicate 4‑byte packets
     if (id == 0x03 || id == 0x04) {
         mouse_extended = true;
         mouse_packet_len = 4;
         return true;
     }
+    mouse_extended = false;
+    mouse_packet_len = 3;
     return false;
 }
 
@@ -86,8 +106,12 @@ static bool enable_intel_mouse(void) {
 // at the start of a packet.
 void mouse_irq() {
     unsigned char b = inb(0x60);
-    // Discard stray ACK or self‑test bytes at packet start (bits 6‑7 set)
-    if (ms_cycle == 0 && (b & 0xC8) != 0x08) return;
+    // A packet always starts with bit 3 set. 0xFA/0xAA are stray ACK/self-test
+    // bytes that also match the bit pattern; drop them before syncing.
+    if (ms_cycle == 0) {
+        if ((b & 0x08) == 0) return;
+        if (b == 0xFA || b == 0xAA) return;
+    }
     ms_b[ms_cycle++] = b;
     if (ms_cycle < mouse_packet_len) return;
     // Complete packet received
@@ -103,7 +127,7 @@ void mouse_irq() {
     // Wheel handling for 4‑byte packets (signed 8‑bit delta)
     if (mouse_extended && mouse_packet_len == 4) {
         // Byte 3 is the scroll wheel; treat it as signed
-        int wheel = (int8_t)ms_b[3];
+        int wheel = (signed char)ms_b[3];
         mouse_wheel += wheel;
     }
     unsigned int h = ms_h;

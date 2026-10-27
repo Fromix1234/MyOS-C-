@@ -34,9 +34,15 @@ void mem_init(unsigned int fba) {
     for (int i = 0; i < 1024; i++) page_dir[i] = 0;
     page_dir[0] = 0x00000000 | PTE_P | PTE_RW | PTE_PS;             // 0..4 МБ — ядро (только ring 0)
     page_dir[1] = USER_BASE  | PTE_P | PTE_RW | PTE_PS | PTE_USER;  // 4..8 МБ — программы (ring 3)
-    unsigned int base = fba & 0xFFC00000u;   // адрес видеопамяти — до 4 МБ
-    for (int i = 0; i < 3; i++)              // картину видеопамяти открываем и программам
-        page_dir[(base >> 22) + i] = (base + (unsigned int)i * 0x100000) | PTE_P | PTE_RW | PTE_PS | PTE_USER;
+    // Видеопамять (LFB) обычно лежит выше 4 МБ. Если VBE-записки нет,
+    // init_video оставляет fb = 0xA0000; в этом случае base == 0 и старый
+    // код затирал page_dir[0..2], снимая USER с окна программ 4..8 МБ.
+    // Поэтому отображаем LFB только если он реально выше 8 МБ.
+    unsigned int base = fba & 0xFFC00000u;
+    if (base >= 0x00400000u) {
+        for (int i = 0; i < 3; i++)          // картину видеопамяти открываем и программам
+            page_dir[(base >> 22) + i] = (base + (unsigned int)i * 0x400000) | PTE_P | PTE_RW | PTE_PS | PTE_USER;
+    }
     asm volatile("mov %%cr4, %%eax\n\tor $0x10, %%eax\n\tmov %%eax, %%cr4" ::: "eax");       // включить страницы 4 МБ (PSE)
     asm volatile("mov %0, %%cr3" :: "r"(page_dir) : "memory");                                // каталог страниц
     asm volatile("mov %%cr0, %%eax\n\tor $0x80000000, %%eax\n\tmov %%eax, %%cr0" ::: "eax"); // и сами страницы (PG)

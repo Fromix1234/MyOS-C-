@@ -7,16 +7,25 @@
 // Из какого раздела загрузились? VBR оставил «записку» в низкой памяти:
 // 0x0500 = LBA раздела (word), 0x0502 = сигнатура 'MY' (0x4D59).
 // Возврат: 1..4 — номер раздела, 0 — записка есть, но раздела нет, -1 — не через VBR.
+// 1 = загрузка с ISO/флоппи: оболочка уже в ОЗУ, ATA/MyFS не трогаем.
+int g_cd_preload = 0;
+
 int boot_partition(unsigned short* out_lba) {
+    if (g_cd_preload) { if (out_lba) *out_lba = 0; return 0; }
+    log_puts("bp: start\n");
     if (*(volatile unsigned short*)0x0502 != 0x4D59) return -1;
     unsigned short bootlba = *(volatile unsigned short*)0x0500;
+    log_puts("bp: note lba=0x"); log_hex((unsigned int)bootlba); log_puts("\n");
     if (out_lba) *out_lba = bootlba;
     ata_read_sector(0, disk_buf);        // читаем MBR — ищем раздел с таким LBA
+    log_puts("bp: mbr sig=0x"); log_hex((unsigned int)(disk_buf[510] | (disk_buf[511] << 8))); log_puts("\n");
     for (int i = 0; i < 4; i++) {
         unsigned char* e = disk_buf + 446 + i * 16;
         if (e[4] == 0) continue;         // пустой слот
         unsigned int l = (unsigned int)e[8] | ((unsigned int)e[9] << 8) |
                          ((unsigned int)e[10] << 16) | ((unsigned int)e[11] << 24);
+        log_puts("bp: slot=0x"); log_hex((unsigned int)i);
+        log_puts(" lba=0x"); log_hex(l); log_puts("\n");
         if (l == bootlba) return i + 1;  // нашли — это наш раздел
     }
     return 0;

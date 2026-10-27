@@ -41,7 +41,7 @@ int fs_read_at(unsigned int start, unsigned int size, unsigned char* dst, unsign
         ata_read_sector(start, disk_buf);
         unsigned int chunk = size - got;
         if (chunk > 512) chunk = 512;
-        for (unsigned int i = 0; i < chunk; i++) dst[got + i] = disk_buf[i];
+        memcpy(dst + got, disk_buf, chunk);
         got += chunk;
         start++;
     }
