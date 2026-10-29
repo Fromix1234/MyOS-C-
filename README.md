@@ -5,8 +5,6 @@
 
 ![MyOS Banner](assets/banner.jpg)
 
-**Design by CEO FROMIX**
-
 ---
 
 > [!WARNING]
