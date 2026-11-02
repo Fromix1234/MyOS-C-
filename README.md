@@ -173,24 +173,22 @@ gantt
     dateFormat YYYY-MM-DD
     axisFormat %d.%m
 
-    section Архитектура
-    Проектирование системы           :done, arch, 2026-10-01, 14d
+    section Завершенные этапы
+    Загрузчик и базовая инфраструктура :done, 2026-11-02, 1d
 
-    section Ядро
-    Разработка ядра на Rust           :active, kernel, 2026-10-15, 30d
-    Управление памятью                :memory, after kernel, 14d
-    Прерывания и системные вызовы     :interrupts, after memory, 14d
+    section Ядро Rust
+    Разработка ядра :active, kernel, 2026-11-03, 21d
+    Интеграция ядра и оболочки :integration, after kernel, 7d
 
-    section Драйверы
-    Разработка драйверов              :drivers, after interrupts, 30d
-
-    section Графическая система
-    Разработка рабочего стола         :ui, 2026-10-15, 30d
-    Оптимизация графической оболочки  :optimization, after ui, 21d
+    section Графическая оболочка
+    Реализация интерфейса :active, gui, 2026-11-03, 28d
+    Оптимизация графической оболочки :optimization, after gui, 7d
 
     section Тестирование
-    Интеграция компонентов            :testing, after drivers, 14d
-    Финальное тестирование            :final, after optimization, 14d
+    Интеграционное тестирование :testing, after integration, 7d
+    Финальное тестирование :final, after optimization, 7d
+
+        
 
 <div align="center">
   <sub>© 2026 MyOS Project. All rights reserved. Designed by FROMIX.</sub>
