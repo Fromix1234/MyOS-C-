@@ -167,27 +167,28 @@ MyOS находится на стадии независимой разрабо�
 Финансовая модель будет обновляться по мере развития проекта и появления фактических данных о расходах и доходах.
 Выше указанная информация про доходы и прибыли(примерное)
 
-'''
+
+```mermaid
 gantt
     title MyOS — план разработки
     dateFormat YYYY-MM-DD
     axisFormat %d.%m
 
-    section Завершенные этапы
-    Загрузчик и базовая инфраструктура :done, 2026-11-02, 1d
+    section Завершено
+    Все остальные этапы проекта :done, completed, 2026-11-02, 1d
 
     section Ядро Rust
     Разработка ядра :active, kernel, 2026-11-03, 21d
-    Интеграция ядра и оболочки :integration, after kernel, 7d
 
     section Графическая оболочка
     Реализация интерфейса :active, gui, 2026-11-03, 28d
-    Оптимизация графической оболочки :optimization, after gui, 7d
+    Оптимизация интерфейса :optimization, after gui, 7d
 
-    section Тестирование
-    Интеграционное тестирование :testing, after integration, 7d
-    Финальное тестирование :final, after optimization, 7d
-'''
+    section Интеграция и тестирование
+    Интеграция ядра и оболочки :integration, after gui, 7d
+    Финальное тестирование :final, after integration, 7d
+```
+
         
 
 <div align="center">
