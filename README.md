@@ -167,6 +167,31 @@ MyOS находится на стадии независимой разрабо�
 Финансовая модель будет обновляться по мере развития проекта и появления фактических данных о расходах и доходах.
 Выше указанная информация про доходы и прибыли(примерное)
 
+
+gantt
+    title MyOS — план разработки
+    dateFormat YYYY-MM-DD
+    axisFormat %d.%m
+
+    section Архитектура
+    Проектирование системы           :done, arch, 2026-10-01, 14d
+
+    section Ядро
+    Разработка ядра на Rust           :active, kernel, 2026-10-15, 30d
+    Управление памятью                :memory, after kernel, 14d
+    Прерывания и системные вызовы     :interrupts, after memory, 14d
+
+    section Драйверы
+    Разработка драйверов              :drivers, after interrupts, 30d
+
+    section Графическая система
+    Разработка рабочего стола         :ui, 2026-10-15, 30d
+    Оптимизация графической оболочки  :optimization, after ui, 21d
+
+    section Тестирование
+    Интеграция компонентов            :testing, after drivers, 14d
+    Финальное тестирование            :final, after optimization, 14d
+
 <div align="center">
   <sub>© 2026 MyOS Project. All rights reserved. Designed by FROMIX.</sub>
 </div>
