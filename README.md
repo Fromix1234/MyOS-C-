@@ -168,7 +168,7 @@ MyOS находится на стадии независимой разрабо�
 Выше указанная информация про доходы и прибыли(примерное)
 
 
-```mermaid
+'''mermaid
 gantt
     title MyOS — план разработки
     dateFormat YYYY-MM-DD
@@ -187,7 +187,7 @@ gantt
     section Интеграция и тестирование
     Интеграция ядра и оболочки :integration, after gui, 7d
     Финальное тестирование :final, after integration, 7d
-```
+'''
 
         
 
