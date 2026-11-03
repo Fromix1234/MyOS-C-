@@ -62,10 +62,19 @@ need "$OBJCOPY" "Установите binutils"
 # Точка входа в скриптах линковщика записана с подчёркиванием (так её видит
 # MinGW/COFF). В ELF имена C-функций без подчёркивания, поэтому подставляем
 # алиасы, иначе ld не найдёт ENTRY(). Для MinGW алиасы не нужны.
+# Алиасы раздельные: в объекте ядра нет shell_main, а в оболочке — kernel_main.
 case "$CC" in
-    *mingw*) DEFSYM=() ;;
-    *)       DEFSYM=(--defsym _kernel_main=kernel_main --defsym _shell_main=shell_main) ;;
+    *mingw*) DEFSYM_SHELL=() ;;
+    *)       DEFSYM_SHELL=(--defsym _shell_main=shell_main) ;;
 esac
+if [ $USE_RUST -eq 1 ]; then
+    DEFSYM_KERNEL=()          # Rust-ядро само определяет _kernel_main
+else
+    case "$CC" in
+        *mingw*) DEFSYM_KERNEL=() ;;
+        *)       DEFSYM_KERNEL=(--defsym _kernel_main=kernel_main) ;;
+    esac
+fi
 
 if [ $CLEAN -eq 1 ]; then
     rm -f boot.bin vbr.bin stage2.bin kernel.bin kernel.elf kernel.o kernel_clean.o \
@@ -88,7 +97,7 @@ echo "=== 0. user_demo.asm ==="
 echo "=== 1. shell -> shell.bin ==="
 "$CC" "${CXXFLAGS[@]}" -c shell/shell.cpp -o shell/shell.o
 strip_obj shell/shell.o shell/shell_clean.o
-"$LD" -m elf_i386 "${DEFSYM[@]}" -T shell/shell.ld -o shell/shell.elf shell/shell_clean.o
+"$LD" -m elf_i386 "${DEFSYM_SHELL[@]}" -T shell/shell.ld -o shell/shell.elf shell/shell_clean.o
 "$OBJCOPY" -O binary shell/shell.elf shell/shell.bin
 SHELL_SIZE=$(wc -c < shell/shell.bin | tr -d '[:space:]')
 if [ "$SHELL_SIZE" -gt 1048576 ]; then
@@ -108,7 +117,7 @@ if [ $USE_RUST -eq 1 ]; then
                   -Z build-std=core )
     RUST_LIB=kernel-rs/target/i686-unknown-linux-gnu/release/libmyos_kernel_rs.a
     [ -f "$RUST_LIB" ] || { echo "ERROR: нет $RUST_LIB" >&2; exit 1; }
-    "$LD" -m elf_i386 --gc-sections "${DEFSYM[@]}" -T kernel-rs/kernel.ld -o kernel.elf "$RUST_LIB"
+    "$LD" -m elf_i386 --gc-sections "${DEFSYM_KERNEL[@]}" -T kernel-rs/kernel.ld -o kernel.elf "$RUST_LIB"
     "$OBJCOPY" -O binary kernel.elf kernel.bin
 else
     echo "=== 2. kernel -> kernel.bin ==="
@@ -116,7 +125,7 @@ else
     for _pass in 1 2 3; do
         "$CC" "${CXXFLAGS[@]}" -DKERNEL_SECTORS=$SECTORS -c kernel/kernel.cpp -o kernel.o
         strip_obj kernel.o kernel_clean.o
-        "$LD" -m elf_i386 "${DEFSYM[@]}" -T kernel.ld -o kernel.elf kernel_clean.o
+        "$LD" -m elf_i386 "${DEFSYM_KERNEL[@]}" -T kernel.ld -o kernel.elf kernel_clean.o
         "$OBJCOPY" -O binary kernel.elf kernel.bin
         KSIZE=$(wc -c < kernel.bin | tr -d '[:space:]')
         NEWSECTORS=$(( (KSIZE + 511) / 512 + 1 ))
