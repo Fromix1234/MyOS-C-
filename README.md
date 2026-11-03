@@ -95,8 +95,13 @@ powershell -ExecutionPolicy Bypass -File build_iso.ps1
 ```bash
 ./build.sh          # ядро C++ + оболочка + disk.img (нужны nasm, i686-elf-gcc, python3)
 ./build.sh -r       # ядро Rust (nightly, target i686-unknown-linux-gnu)
+python3 tools/mkiso.py disk.img -o MyOS.iso   # загрузочный ISO9660 + El Torito
+VBoxManage convertfromraw disk.img MyOS.vdi --format VDI
 ./tools/sim/build.sh 1440x900 shot.bmp   # только интерфейс, без кросс-компилятора
 ```
+На macOS кросс-компилятор ставится через `brew install nasm i686-elf-gcc python3`.
+`tools/mkiso.py` — тот же генератор ISO, что и `build_iso.ps1`, но без PowerShell;
+образ корректно читается как ISO9660 и загружается через El Torito.
 `tools/sim` собирает настоящий код оболочки обычным `clang++` и рисует кадр
 в BMP — удобно для разработки интерфейса без VirtualBox.
 

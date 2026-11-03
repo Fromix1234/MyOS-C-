@@ -23,7 +23,7 @@ void boot_error_screen(const char* what) {
 extern "C" void kernel_main() {
     serial_init();                      // COM1 — ещё до всего (тесты, отладка)
     log_reset();
-    log_puts("boot: kernel start (MyOS v3.1 pre-release)\n");   // метки загрузки: dmesg + COM1
+    log_puts("boot: kernel start (MyOS v3.2 pre-release)\n");   // метки загрузки: dmesg + COM1
     init_video();                       // видео: «записка» stage2 (VESA VBE)
     log_puts("video: note=0x"); log_hex(*(volatile unsigned short*)0x0510);
     log_puts(" fb=0x");  log_hex((unsigned int)fb);

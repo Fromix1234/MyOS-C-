@@ -32,4 +32,5 @@ c_*.png
 *.vdi
 *.iso
 boot.img
+SHA256SUMS
 serial.log

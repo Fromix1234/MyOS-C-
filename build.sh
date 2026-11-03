@@ -60,10 +60,11 @@ need "$LD" "Установите binutils"
 need "$OBJCOPY" "Установите binutils"
 
 # Точка входа в скриптах линковщика записана с подчёркиванием (так её видит
-# MinGW/COFF). Для ELF подставляем алиас, иначе ld не найдёт ENTRY().
+# MinGW/COFF). В ELF имена C-функций без подчёркивания, поэтому подставляем
+# алиасы, иначе ld не найдёт ENTRY(). Для MinGW алиасы не нужны.
 case "$CC" in
-    *elf-gcc) DEFSYM=() ;;
-    *)        DEFSYM=(--defsym _kernel_main=kernel_main --defsym _shell_main=shell_main) ;;
+    *mingw*) DEFSYM=() ;;
+    *)       DEFSYM=(--defsym _kernel_main=kernel_main --defsym _shell_main=shell_main) ;;
 esac
 
 if [ $CLEAN -eq 1 ]; then
@@ -89,7 +90,7 @@ echo "=== 1. shell -> shell.bin ==="
 strip_obj shell/shell.o shell/shell_clean.o
 "$LD" -m elf_i386 "${DEFSYM[@]}" -T shell/shell.ld -o shell/shell.elf shell/shell_clean.o
 "$OBJCOPY" -O binary shell/shell.elf shell/shell.bin
-SHELL_SIZE=$(wc -c < shell/shell.bin)
+SHELL_SIZE=$(wc -c < shell/shell.bin | tr -d '[:space:]')
 if [ "$SHELL_SIZE" -gt 1048576 ]; then
     echo "ERROR: shell.bin больше 1 МБ (зона снимка ядра)" >&2; exit 1
 fi
@@ -117,13 +118,13 @@ else
         strip_obj kernel.o kernel_clean.o
         "$LD" -m elf_i386 "${DEFSYM[@]}" -T kernel.ld -o kernel.elf kernel_clean.o
         "$OBJCOPY" -O binary kernel.elf kernel.bin
-        KSIZE=$(wc -c < kernel.bin)
+        KSIZE=$(wc -c < kernel.bin | tr -d '[:space:]')
         NEWSECTORS=$(( (KSIZE + 511) / 512 + 1 ))
         [ "$NEWSECTORS" -eq "$SECTORS" ] && break
         SECTORS=$NEWSECTORS
     done
 fi
-KERNEL_SIZE=$(wc -c < kernel.bin)
+KERNEL_SIZE=$(wc -c < kernel.bin | tr -d '[:space:]')
 KERNEL_SECTORS=$(( (KERNEL_SIZE + 511) / 512 + 1 ))
 echo "    kernel.bin = $KERNEL_SIZE bytes = $KERNEL_SECTORS sectors"
 if [ $(( KERNEL_SECTORS + 3 )) -gt 192 ]; then

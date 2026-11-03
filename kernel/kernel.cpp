@@ -40,3 +40,24 @@
 #include "k11_sys.cpp"      // диспетчер системных вызовов
 #include "k9_splash.cpp"    // заставка: большой шрифт + полоса загрузки
 #include "k10_kmain.cpp"    // kernel_main: загрузка оболочки и запуск задачи
+
+// ELF-тулчейн (i686-elf-gcc, Linux/macOS) не добавляет '_' к именам C-функций,
+// а ассемблерные стабы в k7b/k8 написаны в расчёте на MinGW/COFF. Даём
+// недостающие алиасы, чтобы ядро собиралось обоими тулчейнами.
+#if defined(__ELF__)
+__asm__(
+    ".globl isr_syscall\n.set isr_syscall, _isr_syscall\n"
+    ".globl isr_irq0\n.set isr_irq0, _isr_irq0\n"
+    ".globl isr_irq1\n.set isr_irq1, _isr_irq1\n"
+    ".globl isr_irq12\n.set isr_irq12, _isr_irq12\n"
+    ".globl irq_exit\n.set irq_exit, _irq_exit\n"
+    ".globl isr_df\n.set isr_df, _isr_df\n"
+    ".globl isr_gp\n.set isr_gp, _isr_gp\n"
+    ".globl isr_pf\n.set isr_pf, _isr_pf\n"
+    ".globl task_switch\n.set task_switch, _task_switch\n"
+    ".globl jump_to_task\n.set jump_to_task, _jump_to_task\n"
+    ".globl _syscall_dispatch\n.set _syscall_dispatch, syscall_dispatch\n"
+    ".globl _irq_dispatch\n.set _irq_dispatch, irq_dispatch\n"
+    ".globl _cpu_fault\n.set _cpu_fault, cpu_fault\n"
+);
+#endif

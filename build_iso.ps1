@@ -24,6 +24,8 @@ $P = (Get-Location).Path
 $diskPath = Join-Path $P 'disk.img'
 $bootPath = Join-Path $P 'boot.img'
 $isoPath  = Join-Path $P 'MyOS.iso'
+$VERSION = "MyOS 3.2"
+$VOLUME_ID = "MYOS_V32"
 
 if (-not (Test-Path $diskPath)) {
     Write-Host "ERROR: $diskPath not found. Run .\build.ps1 first." -ForegroundColor Red
@@ -102,8 +104,8 @@ function Make-DirRecord([int]$extent, [int]$size, [bool]$isDir, [byte[]]$id) {
     $r[1] = 0
     Put-Both32 $r 2 $extent
     Put-Both32 $r 10 $size
-    # recording date/time: 2026-10-27 12:00:00 GMT+0
-    $r[18] = 126; $r[19] = 10; $r[20] = 27
+    # recording date/time: 2026-11-03 12:00:00 GMT+0
+    $r[18] = 126; $r[19] = 11; $r[20] = 3
     $r[21] = 12; $r[22] = 0; $r[23] = 0; $r[24] = 0
     $r[25] = if ($isDir) { 0x02 } else { 0x00 }
     $r[26] = 0; $r[27] = 0
@@ -126,20 +128,19 @@ $pvd[6] = 1
 Fill-Spaces $pvd 8 32
 Put-Ascii $pvd 8 "MYOS"
 Fill-Spaces $pvd 40 32
-Put-Ascii $pvd 40 "MYOS_V31_PRERELEASE"
-Put-Both32 $pvd 72 $TOTAL_SECTORS
-Put-Both16 $pvd 80 1
-Put-Both16 $pvd 88 1
-Put-Both16 $pvd 96 $SECTOR
-$pathTableSize = 10
-Put-Both32 $pvd 104 $pathTableSize
-Put-LE32 $pvd 112 $PATHL_LBA
-Put-LE32 $pvd 116 0
-Put-LE32 $pvd 120 $PATHM_LBA
-Put-LE32 $pvd 124 0
-# root directory record (34 bytes)
+Put-Ascii $pvd 40 $VOLUME_ID
+Put-Both32 $pvd 80 $TOTAL_SECTORS      # volume space size
+Put-Both16 $pvd 120 1                  # volume set size
+Put-Both16 $pvd 124 1                  # volume sequence number
+Put-Both16 $pvd 128 $SECTOR            # logical block size
+Put-Both32 $pvd 132 10                 # path table size
+Put-LE32 $pvd 140 $PATHL_LBA
+Put-LE32 $pvd 144 0                    # optional Type-L path table
+Put-LE32 $pvd 148 $PATHM_LBA
+Put-LE32 $pvd 152 0                    # optional Type-M path table
+# root directory record (34 bytes) — смещение 156 по ECMA-119
 $rootRec = Make-DirRecord $ROOT_LBA $SECTOR $true ([byte[]](0))
-[Array]::Copy($rootRec, 0, $pvd, 128, $rootRec.Length)
+[Array]::Copy($rootRec, 0, $pvd, 156, $rootRec.Length)
 Fill-Spaces $pvd 190 128
 Fill-Spaces $pvd 318 128
 Fill-Spaces $pvd 446 128
@@ -147,16 +148,15 @@ Fill-Spaces $pvd 574 128
 Fill-Spaces $pvd 702 37
 Fill-Spaces $pvd 739 37
 Fill-Spaces $pvd 776 37
+Put-Ascii $pvd 190 $VOLUME_ID
 Put-Ascii $pvd 318 "CEO FROMIX"
 Put-Ascii $pvd 446 "MyOS project"
-Put-Ascii $pvd 574 "MyOS 3.1 pre-release"
-$date = "2026102712000000"
+Put-Ascii $pvd 574 "$VERSION pre-release"
+$date = "2026110312000000"
 Put-Ascii $pvd 813 $date; $pvd[829] = 0
 Put-Ascii $pvd 830 $date; $pvd[846] = 0
-for ($i = 0; $i -lt 16; $i++) { $pvd[847 + $i] = [byte][char]'0' }
-$pvd[863] = 0
-for ($i = 0; $i -lt 16; $i++) { $pvd[864 + $i] = [byte][char]'0' }
-$pvd[880] = 0
+Put-Ascii $pvd 847 $date; $pvd[863] = 0
+Put-Ascii $pvd 864 $date; $pvd[880] = 0
 $pvd[881] = 1
 Put-Sector $pvd $PVD_LBA
 
@@ -183,7 +183,7 @@ $cat[0] = 1
 $cat[1] = 0
 $cat[2] = 0
 $cat[3] = 0
-Put-Ascii $cat 4 "MyOS 3.1 pre-release"
+Put-Ascii $cat 4 "$VERSION pre-release"
 $sum = 0
 for ($i = 0; $i -lt 32; $i += 2) {
     $sum += $cat[$i] + ($cat[$i + 1] -shl 8)
@@ -204,7 +204,7 @@ Put-Sector $cat $CATALOG_LBA
 
 # --- Root directory --------------------------------------------------------
 $readmeText = @"
-MyOS 3.1 pre-release
+$VERSION pre-release
 Design by CEO FROMIX
 You can be on the list of developers.
 WARNING!!! Project now in pre-release

@@ -89,7 +89,7 @@ void draw_menubar() {
     if (W >= 640) {
         fill_glass(72, 5, 120, 14, 7, C_GLASS_ICON, GLASS_ICON);
         draw_round_rect(72, 5, 120, 14, 7, C_EDGE);
-        draw_text(80, 4, "3.1 pre-release", C_ACCENT);
+        draw_text(80, 4, "3.2 pre-release", C_ACCENT);
     }
     draw_battery(W - 92, 12);                                 // справа — заряд
     draw_clock();                                             // и часы
@@ -103,7 +103,7 @@ void draw_menubar() {
 //  оно естественно перекроет карточку, а после закрытия рабочий стол
 //  перерисуется и карточка вернётся.
 void draw_branding() {
-    const char* title = "MyOS 3.1  Night Ridge";
+    const char* title = "MyOS 3.2  Night Ridge";
     const char* author = "Design by CEO FROMIX";
     const char* devs = "You can be on the list of developers.";
     const char* warn = "WARNING!!! Project now in pre-release";
@@ -268,7 +268,7 @@ void draw_about() {
     draw_window_frame(ABT_X, ABT_Y, ABT_W, ABT_H, "About MyOS");
     int tx = ABT_X + 10;                 // левый край текста
     int ty = ABT_Y + TITLE_H + 8;        // первая строка — сразу под шапкой
-    draw_text(tx, ty, "MyOS v3.1 pre-release", TEXT_COL);
+    draw_text(tx, ty, "MyOS v3.2 pre-release", TEXT_COL);
 
     // Строка о загрузке: «Boot: P1 (lba=2048)» — собираем вручную (нет sprintf)
     unsigned short lba = 0;
