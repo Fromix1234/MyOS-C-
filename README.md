@@ -40,6 +40,16 @@ MyOS построена на принципе разделения ядра и �
 
 ---
 
+---
+
+## 🆕 What's new in v3.2
+- **UI-тулкит Aqua**: модульная оболочка (`s1_ui`, `s1b_wall`, `s1c_text_svc`, `s1d_layout`) вместо одного файла «стекла».
+- **Безопасность сисколлов**: опасные операции (формат, разделы, установка, запись по диску) доступны только оболочке (pid = 1); проверка указателей больше не переполняется, длина строки считается внутри памяти программы.
+- **Ядро Rust**: framebuffer отображается целыми 4-МиБ страницами — окна и курсор не «проваливаются» в page fault на больших разрешениях.
+- **Сборка вне Windows**: `build.sh` для Linux/macOS и `tools/sim` — хостовый симулятор оболочки без VirtualBox.
+
+---
+
 ## 👥 Developers & Community
 **"You can be on the list of developers."**
 
@@ -52,7 +62,7 @@ MyOS построена на принципе разделения ядра и �
 
 ## 📦 Quick Start (Oracle VM VirtualBox)
 
-### Готовые образы релиза v3.1-pre
+### Готовые образы релиза v3.2
 - **`MyOS.vdi`** — виртуальный жёсткий диск для VirtualBox;
 - **`MyOS.iso`** — загрузочный ISO (El Torito, эмуляция 1.44 MB floppy).
 
@@ -80,6 +90,15 @@ powershell -ExecutionPolicy Bypass -File build_iso.ps1
 ```powershell
 & "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" convertfromraw disk.img MyOS.vdi --format VDI
 ```
+
+### Сборка на Linux / macOS
+```bash
+./build.sh          # ядро C++ + оболочка + disk.img (нужны nasm, i686-elf-gcc, python3)
+./build.sh -r       # ядро Rust (nightly, target i686-unknown-linux-gnu)
+./tools/sim/build.sh 1440x900 shot.bmp   # только интерфейс, без кросс-компилятора
+```
+`tools/sim` собирает настоящий код оболочки обычным `clang++` и рисует кадр
+в BMP — удобно для разработки интерфейса без VirtualBox.
 
 ---
 ## 👥 Управление проектом и команда

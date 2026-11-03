@@ -47,6 +47,8 @@ const EV_KEY: i32 = 1;
 const EV_MOUSE: i32 = 2;
 
 // --- Проверка «адрес лежит в памяти программ» (4..8 МБ) --------------------
+//  Сравнение без сложения: addr + len у 32-битного адреса переполняется
+//  (0xFFFF_FFF0 + 0x20 = 0x10) и «проскочило» бы границу памяти программ.
 fn user_ok(addr: u32, len: u32) -> bool {
     if addr < 0x0040_0000 {
         return false;
@@ -54,10 +56,14 @@ fn user_ok(addr: u32, len: u32) -> bool {
     if len > 0x0040_0000 {
         return false;
     }
-    if addr + len > 0x0080_0000 {
-        return false;
-    }
-    true
+    addr <= 0x0080_0000 - len
+}
+
+/// Опасные операции (формат, разделы, установка, запись «наугад» по диску)
+/// разрешены только оболочке — первой задаче (pid = 1). Программа ring 3
+/// таких прав не получает: её аргумент «подтверждаю» ничего не значит.
+fn privileged() -> bool {
+    task::pid() == 1
 }
 
 /// Скопировать строку из памяти программы в буфер ядра (до max-1 символов).
@@ -267,6 +273,9 @@ unsafe fn dispatch(num: u32, a1: u32, a2: u32, a3: u32, a4: u32, a5: u32) -> u32
             disk::fs_rename(a1 as i32, cstr(&old), cstr(&new)) as u32
         }
         SYS_FS_FORMAT => {
+            if !privileged() {
+                return u32::MAX;
+            }
             let r = disk::fs_format(a1 as i32, a2 != 0);
             if r != 0 {
                 return r as u32;
@@ -283,14 +292,23 @@ unsafe fn dispatch(num: u32, a1: u32, a2: u32, a3: u32, a4: u32, a5: u32) -> u32
             disk::part_list(a1 as *mut MyosPart) as u32
         }
         SYS_PART_MK => {
+            if !privileged() {
+                return u32::MAX;
+            }
             disk::cmd_mkpart(a1 as i32, a2 as i32);
             0
         }
         SYS_DISK_WTEST => {
+            if !privileged() {
+                return u32::MAX;
+            }
             disk::cmd_wtest();
             0
         }
         SYS_INSTALL_PLAN => {
+            if !privileged() {
+                return u32::MAX;
+            }
             if !user_ok(a2, core::mem::size_of::<MyosInstall>() as u32) {
                 return u32::MAX;
             }
@@ -312,6 +330,9 @@ unsafe fn dispatch(num: u32, a1: u32, a2: u32, a3: u32, a4: u32, a5: u32) -> u32
             }
         }
         SYS_INSTALL => {
+            if !privileged() {
+                return u32::MAX;
+            }
             let (plba, psize) = match disk::install_check(a1 as i32) {
                 Some(v) => v,
                 None => return u32::MAX,

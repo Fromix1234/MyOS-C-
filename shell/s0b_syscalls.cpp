@@ -6,6 +6,18 @@
 //  ВСЕ регистры — «портится» только eax, поэтому операнд "=a".
 // ===========================================================================
 
+// --- ХОСТОВЫЙ СИМУЛЯТОР (tools/sim): int 0x80 недоступен вне ring 3 --------
+//  Компилируется только при MYOS_HOST_SIM. Вместо прерывания — вызов
+//  «фальшивого ядра» из tools/sim/sim_main.cpp.
+#ifdef MYOS_HOST_SIM
+extern "C" long host_syscall(int num, long a1, long a2, long a3, long a4, long a5);
+int sys_call0(int num) { return (int)host_syscall(num, 0, 0, 0, 0, 0); }
+int sys_call1(int num, long a1) { return (int)host_syscall(num, a1, 0, 0, 0, 0); }
+int sys_call2(int num, long a1, long a2) { return (int)host_syscall(num, a1, a2, 0, 0, 0); }
+int sys_call3(int num, long a1, long a2, long a3) { return (int)host_syscall(num, a1, a2, a3, 0, 0); }
+int sys_call4(int num, long a1, long a2, long a3, long a4) { return (int)host_syscall(num, a1, a2, a3, a4, 0); }
+int sys_call5(int num, long a1, long a2, long a3, long a4, long a5) { return (int)host_syscall(num, a1, a2, a3, a4, a5); }
+#else
 // --- Вызовы с 0..5 аргументами (a1=EBX, a2=ECX, a3=EDX, a4=ESI, a5=EDI) -----
 int sys_call0(int num) {
     int r;
@@ -43,6 +55,7 @@ int sys_call5(int num, int a1, int a2, int a3, int a4, int a5) {
                  : "a"(num), "b"(a1), "c"(a2), "d"(a3), "S"(a4), "D"(a5) : "memory");
     return r;
 }
+#endif // MYOS_HOST_SIM
 
 // --- Частые обёртки ---------------------------------------------------------
 int sys_time()  { return sys_call0(SYS_TIME);  }
@@ -57,67 +70,3 @@ int sys_spawn(const char* name, unsigned int base) {
 void sys_yield() { sys_call0(SYS_YIELD); }
 void sys_get_fb(myos_fb_t* f) { sys_call1(SYS_FB, (int)f); }
 int sys_log_read(char* dst, int max) { return sys_call2(SYS_LOG_READ, (int)dst, max); }
-
-// --- Клавиатура оболочки: очередь сканкодов из событий ядра -----------------
-//  input_pump (s4) раскладывает EV_KEY сюда, а оконный код читает poll_key().
-unsigned char kbd_q[256];
-int kbd_h = 0, kbd_t = 0;
-
-void kbd_q_push(int sc) {
-    if (kbd_h - kbd_t >= 256) return;            // переполнение — теряем новое
-    kbd_q[kbd_h & 255] = (unsigned char)sc;
-    kbd_h++;
-}
-int poll_key() {
-    if (kbd_t == kbd_h) return -1;               // очередь пуста
-    int sc = kbd_q[kbd_t & 255];
-    kbd_t++;
-    return sc;
-}
-
-// --- Память/строки (оболочке тоже не дают libc: -nostdlib) ------------------
-// Компилятор вправе звать их сам (копии структур, обнуление буферов).
-extern "C" void* memset(void* d, int c, unsigned int n) {
-    unsigned char* p = (unsigned char*)d;
-    while (n--) *p++ = (unsigned char)c;
-    return d;
-}
-extern "C" void* memcpy(void* d, const void* s, unsigned int n) {
-    unsigned char* a = (unsigned char*)d;
-    const unsigned char* b = (const unsigned char*)s;
-    while (n--) *a++ = *b++;
-    return d;
-}
-extern "C" unsigned int strlen(const char* s) {
-    unsigned int n = 0;
-    while (s[n]) n++;
-    return n;
-}
-extern "C" int strcmp(const char* a, const char* b) {
-    while (*a && *a == *b) { a++; b++; }
-    return (int)(unsigned char)*a - (int)(unsigned char)*b;
-}
-
-// --- Сборка строк для надписей: sk_str/sk_num/sk_hex8/sk_hex32 --------------
-// Оконный код сначала собирает текст в буфер, потом рисует его на экране.
-// (В ядре такие же хелперы; сборки разные — потому копия, а не ссылка.)
-int sk_str(char* b, int k, const char* s) { while (*s) b[k++] = *s++; return k; }
-int sk_num(char* b, int k, unsigned int v) {
-    char t[12]; int i = 0;
-    if (v == 0) t[i++] = '0';
-    while (v > 0) { t[i++] = (char)('0' + v % 10); v /= 10; }
-    while (i > 0) b[k++] = t[--i];
-    return k;
-}
-int sk_hex8(char* b, int k, unsigned char v) {
-    const char* h = "0123456789ABCDEF";
-    b[k++] = h[(v >> 4) & 0x0F];
-    b[k++] = h[v & 0x0F];
-    return k;
-}
-int sk_hex32(char* b, int k, unsigned int v) {
-    k = sk_hex8(b, k, (unsigned char)((v >> 24) & 0xFF));
-    k = sk_hex8(b, k, (unsigned char)((v >> 16) & 0xFF));
-    k = sk_hex8(b, k, (unsigned char)((v >> 8) & 0xFF));
-    return sk_hex8(b, k, (unsigned char)(v & 0xFF));
-}

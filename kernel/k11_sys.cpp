@@ -17,6 +17,14 @@ bool is_sys_file(const char* name) {
     return *a == *b;
 }
 
+// --- Права на опасные операции ---------------------------------------------
+//  Разделы, установка и запись «наугад» по диску — это работа ОБОЛОЧКИ
+//  (первая задача, pid = 1). Программа ring 3 (демка, будущие приложения)
+//  таких прав не получает: раньше хватало одного бита «подтверждаю» в
+//  аргументе, а выставить его могла любая программа — то есть подтверждение
+//  в GUI обходилось одним сисколлом. Теперь спрашиваем ядро, а не аргумент.
+bool sys_privileged() { return task_pid() == 1; }
+
 // Если раздел n — MyFS, положить на него файлы системы из снимков ОЗУ
 // (используется после install; формат делает то же самое в SYS_FS_FORMAT).
 void ensure_sys_files(int n) {
@@ -142,8 +150,15 @@ unsigned int sys_dispatch(unsigned int num, unsigned int a1, unsigned int a2,
         char nm[64];
         if (copy_str_from_user(nm, (const char*)a2, 64) < 0) return (unsigned int)-1;
         int quiet = (a5 != 0);
-        if ((int)a4 < 0)                                    // текст до нуля (как v1.2)
-            return (unsigned int)fs_write((int)a1, nm, (const char*)a3, quiet);
+        if ((int)a4 < 0) {                                  // текст до нуля (как v1.2)
+            // Длину считаем сами и только внутри памяти программы: раньше
+            // строка передавалась в fs_write, который искал ноль по всей
+            // памяти — программа могла «прочитать» ядро до первого нуля.
+            int len = copy_str_len_user((const char*)a3, 0x100000);
+            if (len < 0) return (unsigned int)-1;
+            return (unsigned int)fs_write_buf((int)a1, nm,
+                                              (const unsigned char*)a3, (unsigned int)len, quiet);
+        }
         if (!user_ok(a3, a4)) return (unsigned int)-1;
         return (unsigned int)fs_write_buf((int)a1, nm, (const unsigned char*)a3, a4, quiet);
     }
@@ -161,6 +176,7 @@ unsigned int sys_dispatch(unsigned int num, unsigned int a1, unsigned int a2,
         return (unsigned int)fs_rename((int)a1, o, nw);
     }
     if (num == SYS_FS_FORMAT) {                             // 14
+        if (!sys_privileged()) return (unsigned int)-1;     // формат — только оболочке
         int r = fs_format((int)a1, a2 != 0);                // a2 — «тихо» (окно Files)
         if (r != 0) return (unsigned int)r;
         if ((int)a1 == sys_part) {                          // раздел системы — вернуть файлы
@@ -176,11 +192,17 @@ unsigned int sys_dispatch(unsigned int num, unsigned int a1, unsigned int a2,
         return (unsigned int)sys_part_list((myos_part_t*)a1);
     }
     if (num == SYS_PART_MK) {                               // 16 (n, mb)
+        if (!sys_privileged()) return (unsigned int)-1;     // разделы — только оболочке
         cmd_mkpart((int)a1, (int)a2);
         return 0;
     }
-    if (num == SYS_DISK_WTEST) { cmd_wtest(); return 0; }   // 17
+    if (num == SYS_DISK_WTEST) {                            // 17
+        if (!sys_privileged()) return (unsigned int)-1;     // запись «наугад» — только оболочке
+        cmd_wtest();
+        return 0;
+    }
     if (num == SYS_INSTALL_PLAN) {                          // 18 (n, out)
+        if (!sys_privileged()) return (unsigned int)-1;
         if (!user_ok(a2, sizeof(myos_install_t))) return (unsigned int)-1;
         myos_install_t* out = (myos_install_t*)a2;
         out->lba = 0; out->sectors = 0;
@@ -195,6 +217,7 @@ unsigned int sys_dispatch(unsigned int num, unsigned int a1, unsigned int a2,
     if (num == SYS_INSTALL) {                               // 19 (n, flags)
         // flags: bit0 — подтверждение («yes»: ПИСАТЬ), bit1 — тихо (без печати
         // плана: графический мастер показывает план сам в своём окне).
+        if (!sys_privileged()) return (unsigned int)-1;     // установка — только оболочке
         unsigned int plba = 0, psize = 0;
         if (!install_check((int)a1, &plba, &psize)) return (unsigned int)-1;
         if (!(a2 & 2))

@@ -13,6 +13,15 @@ int FB_RPOS = 16, FB_GPOS = 8, FB_BPOS = 0;   // где в пикселе бит
                                          // (по умолчанию классический BGRX)
 unsigned char* fb = (unsigned char*)0xA0000;  // видеопамять (кадровый буфер)
 
+// Предел ширины экрана для таблиц обоев (s1b/s1d): по колонке на пиксель.
+// 1920 покрывает Full HD; при большем экране таблицы считаются на первые
+// RW_MAXW колонок, а остальное дорисовывается «медленным» путём.
+#define RW_MAXW 1920
+
+// Цвет обоев в точке для АКТИВНОГО набора (s1d). Нужен там, где область
+// стирается «до фона» (курсор, подпись дока) — см. erase_to_wallpaper.
+unsigned int wallpaper_scene_pixel(int x, int y);
+
 // --- Цвета (настоящие RGB: 0xRRGGBB) — дизайн-система «Night Ridge» ---
 const unsigned int C_BLACK  = 0x000000;
 const unsigned int C_WHITE  = 0xF3F5F9;   // основной текст (почти белый)
@@ -83,8 +92,12 @@ const unsigned int RW_HALO    = 0x4A4F76;   // цвет ореола
 //  чистое голубое небо и зелёные холмы. Тоже целиком на целочисленной
 //  математике; луны и звёзд нет, зато у травы есть «полосатая» фактура.
 // ===========================================================================
-int wall_theme = 0;                          // 0 = Night Ridge, 1 = Bliss Hill
-void wall_theme_next() { wall_theme = 1 - wall_theme; }
+//  Наборы обоев: 0 — Night Ridge (ночь), 1 — Bliss Hill (день), 2 — Aqua (панорама).
+//  Раньше тем было две, и переключение было `1 - theme`; теперь список открыт:
+//  новая тема добавляется одним значением здесь и веткой в fill_wallpaper (s1d).
+int wall_theme = 0;                          // 0 = Night Ridge, 1 = Bliss Hill, 2 = Aqua
+#define WALL_THEMES 3
+void wall_theme_next() { wall_theme = (wall_theme + 1) % WALL_THEMES; }
 
 const unsigned int BW_SKY_TOP = 0x3F8FD2;   // насыщенный голубой в зените
 const unsigned int BW_SKY_MID = 0x7BBBE8;   // светлее к середине неба
@@ -336,7 +349,7 @@ void erase_to_wallpaper(int x, int y, int w, int h) {
         int yy = y + j; if (yy < 0 || yy >= H) continue;
         for (int i = 0; i < w; i++) {
             int xx = x + i; if (xx < 0 || xx >= W) continue;
-            put_pixel(xx, yy, wallpaper_pixel(xx, yy));
+            put_pixel(xx, yy, wallpaper_scene_pixel(xx, yy));
         }
     }
 }
@@ -396,6 +409,7 @@ void draw_line(int x1, int y1, int x2, int y2, unsigned int color) {
 //  32..126, каждый = 16 байт = 16 строк. В одном байте — ряд из 8 пикселей:
 //  бит 7 = левый пиксель, бит 0 = правый. Бит=1 -> ставим пиксель.
 #include "../font_data.inc"             // v2.0: общий файл шрифта с ядром
+#include "../icons_data.inc"            // картинки иконок приложений 20x20
 
 // Нарисовать ОДИН символ в точке (x, y)
 void draw_char(int x, int y, char c, unsigned int color) {

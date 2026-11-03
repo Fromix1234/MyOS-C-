@@ -8,6 +8,7 @@ disk.img.sha256
 *.map
 *.a
 kernel-rs/target/
+tools/sim/build/
 
 # --- Скриншоты тестов (QEMU) ---
 *.ppm

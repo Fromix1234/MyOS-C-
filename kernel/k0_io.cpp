@@ -128,11 +128,24 @@ extern "C" int strcmp(const char* a, const char* b) {
 
 // --- Проверка «адрес лежит в памяти программ» (4..8 МБ) --------------------
 // Системные вызовы обязаны проверять указатели, как copy_from_user в Linux.
+// Сравнение идёт БЕЗ сложения: addr+len у 32-битного адреса может переполниться
+// (0xFFFFFFF0 + 0x20 = 0x10) и «пройти» границу — так нельзя.
 bool user_ok(unsigned int addr, unsigned int len) {
     if (addr < 0x00400000u) return false;             // ниже памяти программ
     if (len > 0x00400000u) return false;
-    if (addr + len > 0x00800000u) return false;       // выше памяти программ
+    if (addr > 0x00800000u - len) return false;       // выше памяти программ
     return true;
+}
+
+// Длина строки программы (не длиннее max и не выходя за память программ).
+// Возврат: длина, -1 — неверный адрес или нет нуля в пределах max.
+int copy_str_len_user(const char* src, unsigned int max) {
+    if (!user_ok((unsigned int)src, 1)) return -1;
+    for (unsigned int n = 0; n < max; n++) {
+        if (!user_ok((unsigned int)(src + n), 1)) return -1;
+        if (!src[n]) return (int)n;
+    }
+    return -1;
 }
 
 // Скопировать строку из памяти программы в буфер ядра (до max-1 символов).

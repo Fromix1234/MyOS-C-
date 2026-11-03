@@ -329,11 +329,22 @@ pub fn paging_init(fb_addr: u32) {
         pd.write_volatile(0 | PTE_P | PTE_RW | PTE_PS); // 0..4 МБ — ядро
         pd.add(1).write_volatile(0x0040_0000 | PTE_P | PTE_RW | PTE_PS | PTE_USER);
 
-        let base = fb_addr & 0xFFC0_0000;
-        for i in 0..3usize {
-            let idx = ((base >> 22) as usize) + i;
+        // Видеопамять: страницы по 4 МБ идут ОТ АДРЕСА, кратного 4 МБ.
+        // Раньше физический адрес наращивался на 1 МБ — такая запись в PDE
+        // невалидна (PSE требует выравнивания по размеру страницы), и второй
+        // и следующие мегабайты framebuffer оставались неотображёнными:
+        // на больших режимах (1920x1080x32 ≈ 8 МБ) курсор и окна «проваливались»
+        // в page fault. Теперь отображаем целые 4-МиБ страницы.
+        const FB_PAGES: usize = 4; // 16 МБ — с запасом на 4K и несколько экранов
+        let first = (fb_addr >> 22) as usize;
+        for i in 0..FB_PAGES {
+            let idx = first + i;
+            if idx >= 1024 {
+                break;
+            }
+            let phys = ((first + i) as u32) << 22; // identity-отображение
             pd.add(idx)
-                .write_volatile((base + (i as u32) * 0x10_0000) | PTE_P | PTE_RW | PTE_PS | PTE_USER);
+                .write_volatile(phys | PTE_P | PTE_RW | PTE_PS | PTE_USER);
         }
 
         // FPU/SSE уже включены ассемблерным входом _kernel_main; повторяем

@@ -442,7 +442,7 @@ void draw_settings() {
             }
         } else {
             k = sk_str(b, k, "Theme: ");
-            k = sk_str(b, k, (wall_theme == 0) ? "Night Ridge (moon)" : "Bliss Hill (grass)");
+            k = sk_str(b, k, wall_theme_name());
         }
         b[k] = 0;
         draw_text(tx, y, b, col);
