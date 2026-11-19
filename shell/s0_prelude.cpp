@@ -28,14 +28,14 @@ const unsigned int C_WHITE  = 0xF3F5F9;   // основной текст (поч
 const unsigned int C_RED    = 0xFF5F57;   // «светофор» окна: красная кнопка
 const unsigned int C_YELLOW = 0xFEBC2E;   // ...жёлтая
 const unsigned int C_GREEN  = 0x28C840;   // ...зелёная
-// Цвета «стекла» (премиальный темный стиль CEO Edition):
-const unsigned int C_GLASS_TITLE  = 0x1A1D26;   // Глубокий антрацит для шапки
-const unsigned int C_GLASS_BODY   = 0x080A10;   // Почти черный для тела окна
-const unsigned int C_GLASS_DOCK   = 0x1C2030;   // Темный графит для дока
-const unsigned int C_GLASS_ICON   = 0x121520;   // Подложка иконки
-const unsigned int C_GLASS_ICON_HV = 0x2D3245;  // Светлый акцент при наведении
-const unsigned int C_GLASS_MBAR   = 0x0F111A;   // Верхняя панель
-const unsigned int C_GLASS_TILE   = 0x1E2232;   // Плитки Activities
+// Цвета стеклянных поверхностей. apply_theme() переключает палитру.
+unsigned int C_GLASS_TITLE   = 0x30343C;
+unsigned int C_GLASS_BODY    = 0x242830;
+unsigned int C_GLASS_DOCK    = 0x343943;
+unsigned int C_GLASS_ICON    = 0x292E37;
+unsigned int C_GLASS_ICON_HV = 0x454C58;
+unsigned int C_GLASS_MBAR    = 0x292E37;
+unsigned int C_GLASS_TILE    = 0x363C47;
 // Рамки и выделение:
 const unsigned int C_EDGE_F   = 0xFFFFFF;  // Чисто белый контур В ФОКУСЕ (макс. контраст)
 const unsigned int C_EDGE     = 0x404455;  // Тусклый серый БЕЗ фокуса
@@ -64,7 +64,8 @@ int wave_tri(int x, int p) {
 
 // Смешать два цвета RGB (a = доля второго цвета 0..256)
 unsigned int mix_col(unsigned int c1, unsigned int c2, int a) {
-    if (a < 0) a = 0; if (a > 256) a = 256;
+    if (a < 0) a = 0;
+    if (a > 256) a = 256;
     int ia = 256 - a;
     int r = ((((c1 >> 16) & 0xFF) * ia + ((c2 >> 16) & 0xFF) * a) >> 8);
     int g = ((((c1 >> 8) & 0xFF) * ia + ((c2 >> 8) & 0xFF) * a) >> 8);

@@ -1,8 +1,8 @@
 // ===========================================================================
-//  SHELL s1: UI-ТУЛКИТ «AQUA» — сглаженные скругления, тени, настоящее стекло,
+//  SHELL s1: DreamOS Glass UI — сдержанное полупрозрачное стекло,
 //            иконки приложений, символы меню-бара и тема (тёмная/светлая)
 // ===========================================================================
-//  Модуль добавлен к v3.2 ради «маковского» вида оболочки. Правила те же, что
+//  Модуль развивает существующий UI без изменения внешних интерфейсов. Правила те же, что
 //  во всём ядре: НИ ОДНОГО floating point (FPU отключён флагом -mno-80387),
 //  поэтому вся гладкость сделана на целых числах:
 //
@@ -254,9 +254,9 @@ void draw_glyph(int x, int y, const char* const* g, int gw, int gh,
 // ---------------------------------------------------------------------------
 //  ТЕМА: тёмная и светлая (палитры macOS)
 // ---------------------------------------------------------------------------
-//  Все цвета интерфейса — ГЛОБАЛЬНЫЕ переменные, а не константы: смена темы
-//  пересчитывает их и перерисовывает кадр. Приложения читают те же имена
-//  (TEXT_COL, C_WIN_BODY), поэтому им не нужно ничего знать про тему.
+//  Все цвета интерфейса — глобальные переменные: смена темы пересчитывает
+//  палитру окон и стеклянных поверхностей. Имена существующих переменных
+//  сохранены для обратной совместимости с приложениями.
 bool ui_dark = true;                 // текущая тема: 1 — тёмная (по умолчанию)
 
 unsigned int TEXT_COL     = 0xE8E9EC;   // основной текст в окнах
@@ -281,27 +281,37 @@ unsigned int C_TITLE_TEXT = 0xE8E9EC;   // текст заголовка окн�
 // Пересчитать палитру под текущую тему (вызывается при старте и по переключателю).
 void apply_theme() {
     if (ui_dark) {
-        TEXT_COL = 0xE8E9EC;
-        C_WIN_BODY = 0x1A1B1F; C_WIN_BODY_T = 0x212227;
-        C_WIN_TITLE = 0x303138; C_WIN_TITLE2 = 0x25262B;
-        C_WIN_EDGE = 0x40414A; C_WIN_SEP = 0x36373D; C_WIN_DIM = 0x9A9CA3;
+        // Dark Glass: графитовые поверхности вместо почти чёрных заливок.
+        TEXT_COL = 0xF2F3F5;
+        C_WIN_BODY = 0x252A32; C_WIN_BODY_T = 0x303640;
+        C_WIN_TITLE = 0x3A414B; C_WIN_TITLE2 = 0x303640;
+        C_WIN_EDGE = 0x626B78; C_WIN_SEP = 0x48515D; C_WIN_DIM = 0xB0B7C1;
         C_SEL = 0x0A84FF; C_SEL_TEXT = 0xFFFFFF;
-        C_MBAR_TINT = 0x14151A; C_MBAR_TEXT = 0xEDEDEF;
-        C_MENU_BG = 0x2B2C31; C_MENU_HOT = 0x0A84FF;
-        C_DOCK_TINT = 0x2A2B30;
-        C_PANEL = 0x2C2D32; C_TOOLTIP = 0x3A3B41;
-        C_TITLE_TEXT = 0xE8E9EC;
+        C_MBAR_TINT = 0x303640; C_MBAR_TEXT = 0xF2F3F5;
+        C_MENU_BG = 0x343B45; C_MENU_HOT = 0x0A84FF;
+        C_DOCK_TINT = 0x3A414B;
+        C_PANEL = 0x353D48; C_TOOLTIP = 0x424A55;
+        C_TITLE_TEXT = 0xF2F3F5;
+        C_GLASS_TITLE = 0x454D58; C_GLASS_BODY = 0x252B34;
+        C_GLASS_DOCK = 0x3C4550; C_GLASS_ICON = 0x303844;
+        C_GLASS_ICON_HV = 0x566170; C_GLASS_MBAR = 0x343D48;
+        C_GLASS_TILE = 0x414A56;
     } else {
-        TEXT_COL = 0x1D1D1F;
-        C_WIN_BODY = 0xF6F6F8; C_WIN_BODY_T = 0xFFFFFF;
-        C_WIN_TITLE = 0xE4E4E7; C_WIN_TITLE2 = 0xEDEDF0;
-        C_WIN_EDGE = 0xC9C9CF; C_WIN_SEP = 0xDCDCE1; C_WIN_DIM = 0x77777E;
+        // Light Glass: молочно-белые поверхности с нейтральной серой рамкой.
+        TEXT_COL = 0x202124;
+        C_WIN_BODY = 0xE8EBF0; C_WIN_BODY_T = 0xF5F6F8;
+        C_WIN_TITLE = 0xF5F6F8; C_WIN_TITLE2 = 0xE7E9ED;
+        C_WIN_EDGE = 0xB9C0CA; C_WIN_SEP = 0xD0D5DC; C_WIN_DIM = 0x626A75;
         C_SEL = 0x007AFF; C_SEL_TEXT = 0xFFFFFF;
-        C_MBAR_TINT = 0xF2F2F5; C_MBAR_TEXT = 0x1D1D1F;
-        C_MENU_BG = 0xFBFBFD; C_MENU_HOT = 0x007AFF;
-        C_DOCK_TINT = 0xEDEDF0;
-        C_PANEL = 0xF7F7FA; C_TOOLTIP = 0x45454C;
-        C_TITLE_TEXT = 0x1D1D1F;
+        C_MBAR_TINT = 0xE9EDF2; C_MBAR_TEXT = 0x202124;
+        C_MENU_BG = 0xF7F8FA; C_MENU_HOT = 0x007AFF;
+        C_DOCK_TINT = 0xE3E7ED;
+        C_PANEL = 0xEEF1F5; C_TOOLTIP = 0x3F4650;
+        C_TITLE_TEXT = 0x202124;
+        C_GLASS_TITLE = 0xF5F7FA; C_GLASS_BODY = 0xE5E9EF;
+        C_GLASS_DOCK = 0xE9EDF2; C_GLASS_ICON = 0xDDE3EA;
+        C_GLASS_ICON_HV = 0xC9D3DF; C_GLASS_MBAR = 0xE9EDF2;
+        C_GLASS_TILE = 0xE1E6ED;
     }
 }
 
