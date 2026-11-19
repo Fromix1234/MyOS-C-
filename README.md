@@ -3,7 +3,7 @@
 # 🖥️ MyOS
 ### *The Future of Minimalist Operating Systems*
 
-!(con_Монтажная_область_1.jpg)
+![DreamOS Banner](con_Монтажная_область_1.jpg)
 
 ---
 
