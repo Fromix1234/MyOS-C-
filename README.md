@@ -68,7 +68,7 @@ DreamOS построена на принципе разделения ядра �
 
 **Вариант A — VDI (рекомендуется):**
 1. Создайте VM: **Type** — Other, **Version** — Other/32-bit, RAM — 128 MB.
-2. **System → Motherboard**: EFI выключен (MyOS использует BIOS/Legacy).
+2. **System → Motherboard**: EFI выключен (DreamOS использует BIOS/Legacy).
 3. **Storage** → контроллер **IDE** → добавьте `DreamOS.vdi` как жёсткий диск.
 4. Запустите VM.
 
@@ -171,7 +171,7 @@ DreamOS находится на стадии независимой разраб
 |---|---|
 | Техническая поддержка | Платная установка, настройка и устранение неполадок |
 | Корпоративные лицензии | Коммерческое лицензирование для организаций |
-| Платные приложения | Дополнительные программы и приложения для MyOS |
+| Платные приложения | Дополнительные программы и приложения для DreamOS |
 | Пожертвования | Добровольная финансовая поддержка проекта |
 | Партнёрские проекты | Совместная разработка и интеграция решений на базе DreamOS |
 
@@ -194,7 +194,7 @@ DreamOS находится на стадии независимой разраб
 
 '''mermaid
 gantt
-    title MyOS — план разработки
+    title DreamOS — план разработки
     dateFormat YYYY-MM-DD
     axisFormat %d.%m
 
@@ -216,5 +216,5 @@ gantt
         
 
 <div align="center">
-  <sub>© 2026 MyOS Project. All rights reserved. Designed by FROMIX.</sub>
+  <sub>© 2026 DreamOS Project. All rights reserved. Designed by FROMIX.</sub>
 </div>
