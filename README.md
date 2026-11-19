@@ -3,7 +3,7 @@
 # 🖥️ MyOS
 ### *The Future of Minimalist Operating Systems*
 
-![MyOS Banner](assets/banner.jpg)
+![MyOS Banner](assets/con_Монтажная область 1.png)
 
 ---
 
