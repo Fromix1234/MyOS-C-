@@ -143,8 +143,17 @@ the build was run with that directory prepended to `PATH`.
 - Boot test: VirtualBox 7.2.22, BIOS firmware, 128 MiB RAM, IDE HDD.
 - Observed: desktop reached (`MyOS 3.2 pre-release`, Night Ridge wallpaper,
   menu bar, clock, dock with Terminal/Files/Snake/Settings/About icons).
-- Not yet verified: ISO build, Linux/macOS build, Rust kernel build,
-  UEFI boot, installer.
+
+ISO path was verified as well:
+
+- Command: `powershell -ExecutionPolicy Bypass -File build_iso.ps1`.
+- Result: `MyOS.iso` = 1,540,096 bytes (752 sectors), El Torito 1.44 MB
+  floppy emulation; SHA-256
+  `46F72B8336C99A86BE1B0850773B6FBD49D9A037AB5F7EDAFCC713CB866640AA`.
+- Boot test: VirtualBox 7.2.22, BIOS firmware, 128 MiB RAM, DVD drive only
+  (no HDD). The ISO booted to the same desktop.
+- Not yet verified: Linux/macOS build, Rust kernel build, UEFI boot,
+  installer.
 
 ### 7.4 Test inventory status
 
@@ -159,6 +168,7 @@ documented test layout.
 ### 7.5 Updated work-package status
 
 - **R0:** in progress — branch baseline recorded; test classification pending.
-- **R1:** partially verified — Windows BIOS build and boot pass; clean-build
-  repeatability, ISO, and non-Windows paths pending.
+- **R1:** partially verified — Windows BIOS build and boot pass for both the
+  HDD image and the ISO; clean-build repeatability and non-Windows paths
+  pending.
 - **R2–R7:** unchanged.
