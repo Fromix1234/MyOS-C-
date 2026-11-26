@@ -1,4 +1,4 @@
-# Shared helper: PPM (P6) -> PNG with correct channel order.
+﻿# Shared helper: PPM (P6) -> PNG with correct channel order.
 # DIB-память GDI+ идёт как B,G,R, а PPM — R,G,B: небольшая C#-программа
 # быстро конвертирует и меняет каналы (SetPixel в PowerShell слишком медленный
 # для 1024x768). Подключается так:  . "$d\ppm2png.ps1"
