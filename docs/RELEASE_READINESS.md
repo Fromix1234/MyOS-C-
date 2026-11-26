@@ -1,6 +1,6 @@
 # DreamOS 1.0.0 — Release Readiness
 
-**Status:** Planning / audit baseline  
+**Status:** Planning / BIOS baseline verified (see §7)  
 **Target:** DreamOS 1.0.0 Complete  
 **Boot targets:** Legacy BIOS + UEFI  
 **Architecture target:** x86-64 (release requirement; current repository state must be verified before implementation)
@@ -103,3 +103,62 @@ DreamOS 1.0.0 must not be marked Stable until all of the following are true:
 3. Run a clean build in an available toolchain environment.
 4. Inspect the Rust kernel target, linker script, and entry ABI.
 5. Draft the UEFI architecture before changing the existing BIOS path.
+
+## 7. Baseline verification — 2026-11-26
+
+The release branch was consolidated before any code changes so that all
+subsequent work starts from one tested point.
+
+### 7.1 Branch consolidation
+
+- Base: `release/1.0.0-readiness` at `4306c9e` (`main` + this document).
+- Merged `release/dreamos-stable` (39 commits removing legacy test scripts).
+- Merged `migration/dreamos-full` (`d74ceeb`, DreamOS Glass palettes in
+  `shell/s0_prelude.cpp` and `shell/s1_ui.cpp`).
+- Added UTF-8 BOM to `build.ps1`, `build_iso.ps1`, `font_gen.ps1`, and
+  `ppm2png.ps1`. Without the BOM, Windows PowerShell 5.1 decodes Cyrillic
+  UTF-8 as the system ANSI code page and fails to parse the scripts.
+- Consolidated head: `a74f86b`.
+
+### 7.2 Reference build environment
+
+| Tool | Version |
+| :--- | :--- |
+| Windows | 10.0.26200 |
+| GCC / g++ (w64devkit) | 16.2.0 |
+| GNU ld | 2.47.20260726 |
+| NASM | 3.02 |
+| Python | 3.11.9 |
+| Rust / Cargo | 1.99.1 |
+| VirtualBox | 7.2.22 r175245 |
+
+NASM was installed at `%LOCALAPPDATA%\bin\NASM` but was not on `PATH`;
+the build was run with that directory prepended to `PATH`.
+
+### 7.3 Verified BIOS build and boot
+
+- Command: `powershell -ExecutionPolicy Bypass -File build.ps1 -NoRun`.
+- Result: build completed; `kernel.bin` = 70,860 bytes (140 sectors);
+  `disk.img` = 33,554,432 bytes (32 MiB).
+- Boot test: VirtualBox 7.2.22, BIOS firmware, 128 MiB RAM, IDE HDD.
+- Observed: desktop reached (`MyOS 3.2 pre-release`, Night Ridge wallpaper,
+  menu bar, clock, dock with Terminal/Files/Snake/Settings/About icons).
+- Not yet verified: ISO build, Linux/macOS build, Rust kernel build,
+  UEFI boot, installer.
+
+### 7.4 Test inventory status
+
+`release/dreamos-stable` removed 39 legacy `test_*.ps1` and `mcp/*` scripts
+without the classification required by R0. They remain recoverable from git
+history (`e9a1cde` and earlier), but the release branch currently ships with
+no automated regression tests. R0 is therefore **not complete**: the removed
+scripts still need to be classified as regression, diagnostic, experiment, or
+obsolete, and any regression tests worth keeping must be restored under a
+documented test layout.
+
+### 7.5 Updated work-package status
+
+- **R0:** in progress — branch baseline recorded; test classification pending.
+- **R1:** partially verified — Windows BIOS build and boot pass; clean-build
+  repeatability, ISO, and non-Windows paths pending.
+- **R2–R7:** unchanged.
