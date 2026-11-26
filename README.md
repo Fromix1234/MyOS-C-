@@ -1,4 +1,11 @@
-# DreamOS
+<div align="center">
+
+# 🖥️ DreamOS
+### *The Future of Minimalist Operating Systems*
+
+![DreamOS Banner](<banner_DreamOS_Монтажная область 1.jpg>)
+
+</div>
 
 **Pre-release · v3.2** · x86 · Legacy BIOS
 
