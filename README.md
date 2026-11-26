@@ -1,220 +1,81 @@
-<div align="center">
+# DreamOS
 
-# 🖥️ DreamOS
-### *The Future of Minimalist Operating Systems*
+**Pre-release · v3.2** · x86 · Legacy BIOS
 
-![DreamOS Banner](<banner_DreamOS_Монтажная область 1.jpg>)
-
----
-
-> [!WARNING]
-> **PROJECT STATUS: PRE-RELEASE**
-> *The system is currently in active development. Expect frequent updates and experimental features.*
-
-</div>
-
-## 🚀 Overview
-**DreamOS** — это амбициозный проект по созданию операционной системы с нуля. От низкоуровневого загрузчика до современного графического интерфейса с эффектом «жидкого стекла». 
-
-**Цель проекта:** Доказать, что мощная и функциональная ОС может быть компактной, быстрой и эстетически совершенной.
+A minimal operating system built from scratch — loader, kernel, filesystem and graphical shell.
 
 ---
 
-## 🛠️ Technical Architecture
-DreamOS построена на принципе разделения ядра и оболочки (Ring 0 $\rightarrow$ Ring 3), что обеспечивает стабильность и модульность.
+## Overview
 
-| Компонент | Технология | Описание |
-| :--- | :--- | :--- |
-| **Bootloader** | NASM | MBR $\rightarrow$ VBR $\rightarrow$ Stage2 (VESA Init) |
-| **Kernel (v3.0)** | Rust / C++ | Управление памятью, системные вызовы, драйверы |
-| **Shell (GUI)** | C++ | Оконный менеджер, композитор, приложения |
-| **FileSystem** | MyFS | Собственная оптимизированная файловая система |
+DreamOS uses a microkernel-inspired split: Ring 0 kernel (C++) provides drivers, syscalls and storage; Ring 3 shell (C++) provides the GUI. The boot chain is BIOS MBR → active partition VBR → stage2 → kernel → user tasks.
 
----
-
-## ✨ Key Features
-- 🧊 **Liquid Glass UI**: Полупрозрачные окна и элементы интерфейса.
-- 🖱️ **Advanced Input**: Поддержка IntelliMouse, скролл-колеса и высокая точность.
-- 💻 **MyC Compiler**: Встроенный компилятор в настоящий x86 машинный код.
-- 🛠️ **Disk Management**: Графический мастер установки и управления разделами.
+- **Boot**: Legacy BIOS only — no EFI/UEFI support yet
+- **Architecture**: 32‑bit x86
+- **Filesystem**: MyFS (custom, 8 files max, sector‑based)
+- **UI**: “Liquid Glass” effect with modular windows
 
 ---
 
----
+## Quick Start (VirtualBox)
 
-## 🆕 What's new in v3.2
-- **UI-тулкит Aqua**: модульная оболочка (`s1_ui`, `s1b_wall`, `s1c_text_svc`, `s1d_layout`) вместо одного файла «стекла».
-- **Безопасность сисколлов**: опасные операции (формат, разделы, установка, запись по диску) доступны только оболочке (pid = 1); проверка указателей больше не переполняется, длина строки считается внутри памяти программы.
-- **Ядро Rust**: framebuffer отображается целыми 4-МиБ страницами — окна и курсор не «проваливаются» в page fault на больших разрешениях.
-- **Сборка вне Windows**: `build.sh` для Linux/macOS и `tools/sim` — хостовый симулятор оболочки без VirtualBox.
+### Pre-built images
 
----
+- `DreamOS.vdi` — 32 MB hard‑disk image
+- `DreamOS.iso` — bootable El Torito ISO (1.44 MB floppy emulation)
 
-## 👥 Developers & Community
-**"You can be on the list of developers."**
+**VDI method**
 
-Мы открыты для сотрудничества с теми, кто горит идеей низкоуровневого программирования. Если вы хотите оставить свой след в истории DreamOS — присоединяйтесь к нам!
+1. Create VM: type **Other**, version **Other/32‑bit**, RAM **128 MB**
+2. **Motherboard** → EFI **disabled**
+3. **Storage** → IDE → add `DreamOS.vdi` as hard disk
+4. Start the VM
 
-- **CEO & Lead Architect:** [FROMIX](https://github.com/Fromix1234)
-- **Contributors:** *Your name could be here...*
+**ISO method**
 
----
+1. Create VM without hard disk (or keep existing)
+2. **Storage** → IDE → DVD drive → select `DreamOS.iso`
+3. **Boot Order** → optical drive first
+4. Start the VM — stage2 loads the shell from the ISO
 
-## 📦 Quick Start (Oracle VM VirtualBox)
+### Build from sources
 
-### Готовые образы релиза v3.2
-- **`DreamOS.vdi`** — виртуальный жёсткий диск для VirtualBox;
-- **`DreamOS.iso`** — загрузочный ISO (El Torito, эмуляция 1.44 MB floppy).
-
-**Вариант A — VDI (рекомендуется):**
-1. Создайте VM: **Type** — Other, **Version** — Other/32-bit, RAM — 128 MB.
-2. **System → Motherboard**: EFI выключен (DreamOS использует BIOS/Legacy).
-3. **Storage** → контроллер **IDE** → добавьте `DreamOS.vdi` как жёсткий диск.
-4. Запустите VM.
-
-**Вариант B — ISO:**
-1. Создайте VM без жёсткого диска (или оставьте существующий).
-2. **Storage** → **IDE** → DVD-привод → выберите `DreamOS.iso`.
-3. **System → Motherboard → Boot Order**: оптический привод первым.
-4. Запустите VM. Stage2 сам загрузит оболочку из ISO, ATA-диск не нужен.
-
-### Сборка из исходников
 ```powershell
-cd DreamOS
+# Windows (PowerShell 5.1)
 powershell -ExecutionPolicy Bypass -File build.ps1
 powershell -ExecutionPolicy Bypass -File build_iso.ps1
-```
-`build.ps1` создаёт `disk.img` (32 MB HDD). `build_iso.ps1` создаёт загрузочный
-`DreamOS.iso` **без внешних утилит** (собственный генератор ISO9660 + El Torito).
-Для VDI:
-```powershell
-& "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" convertfromraw disk.img DreamOS.vdi --format VDI
-```
 
-### Сборка на Linux / macOS
-```bash
-./build.sh          # ядро C++ + оболочка + disk.img (нужны nasm, i686-elf-gcc, python3)
-./build.sh -r       # ядро Rust (nightly, target i686-unknown-linux-gnu)
-python3 tools/mkiso.py disk.img -o DreamOS.iso   # загрузочный ISO9660 + El Torito
+# Linux / macOS
+./build.sh              # kernel + shell + disk.img
+./build.sh -r           # Rust kernel (nightly, i686-unknown-linux-gnu)
+python3 tools/mkiso.py disk.img -o DreamOS.iso
 VBoxManage convertfromraw disk.img DreamOS.vdi --format VDI
-./tools/sim/build.sh 1440x900 shot.bmp   # только интерфейс, без кросс-компилятора
 ```
-На macOS кросс-компилятор ставится через `brew install nasm i686-elf-gcc python3`.
-`tools/mkiso.py` — тот же генератор ISO, что и `build_iso.ps1`, но без PowerShell;
-образ корректно читается как ISO9660 и загружается через El Torito.
-`tools/sim` собирает настоящий код оболочки обычным `clang++` и рисует кадр
-в BMP — удобно для разработки интерфейса без VirtualBox.
-
----
-## 👥 Управление проектом и команда
-
-DreamOS — независимый проект по разработке собственной операционной системы. Проект возглавляет FROMIX. Разработка ведётся по модульному принципу с разделением ответственности за архитектуру, ядро, драйверы, графическую оболочку, тестирование и выпуск сборок.
-
-### Роли и обязанности
-
-| Роль | Обязанности |
-|---|---|
-| Руководитель проекта | Планирование, определение приоритетов, контроль сроков и координация разработки |
-| Ведущий архитектор | Архитектура системы, технические решения и взаимодействие компонентов |
-| Разработчик ядра | Разработка ядра на Rust, управление памятью и системные механизмы |
-| Разработчик драйверов | Поддержка оборудования, обработка ввода и низкоуровневые интерфейсы |
-| Разработчик графической оболочки | Рабочий стол, оконная система и графические приложения |
-| Инженер по тестированию | Проверка работоспособности, поиск ошибок и обеспечение стабильности |
-| Инженер по сборке и выпуску | Автоматизация сборок, создание загрузочных образов и подготовка релизов |
-
-**Руководитель проекта:** FROMIX — генеральный директор и ведущий архитектор.
-
-В настоящее время несколько ролей могут совмещаться одним разработчиком. Участники сообщества могут присоединяться к разработке отдельных компонентов системы.
-
-### Матрица ответственности RACI
-
-RACI определяет распределение ответственности за основные задачи проекта:
-
-- **R (Responsible) — Исполнитель:** непосредственно выполняет задачу.
-- **A (Accountable) — Ответственный:** отвечает за конечный результат и принимает итоговые решения.
-- **C (Consulted) — Консультируемый:** предоставляет технические рекомендации.
-- **I (Informed) — Информируемый:** получает информацию о ходе выполнения задачи.
-
-| Задача | Руководитель | Архитектор | Ядро | Драйверы | GUI | Тестирование | Сборка |
-|---|---|---|---|---|---|---|---|
-| Планирование проекта | A/R | C | I | I | I | I | I |
-| Архитектура системы | A | R | C | C | C | I | I |
-| Разработка ядра | A | C | R | C | I | C | I |
-| Разработка драйверов | A | C | C | R | I | C | I |
-| Разработка GUI | A | C | C | C | R | C | I |
-| Тестирование системы | A | C | C | C | C | R | C |
-| Сборка и выпуск | A | C | C | C | C | C | R |
-
-В текущем формате руководитель проекта также несёт ответственность за принятие ключевых технических решений и итоговое качество системы.
 
 ---
 
-## 💰 Финансовая модель проекта
+## Building blocks
 
-DreamOS находится на стадии независимой разработки. Приведённые ниже значения являются предварительной финансовой моделью, а не подтверждёнными доходами или расходами проекта.
+| Component | Language / Tool | Role |
+|-----------|----------------|------|
+| Bootloader | NASM | MBR → VBR → stage2 |
+| Kernel | C++ (GCC `-m32`) | Memory, syscalls, ATA, MyFS |
+| Shell | C++ | Window manager, compositor, apps |
+| Filesystem | MyFS | Custom, 8 files, sector‑based |
+| Rust kernel | nightly i686‑unknown‑linux-gnu | Experimental |
 
-### Планируемые ежемесячные расходы
+---
 
-| Статья расходов | Сумма в месяц |
-|---|---:|
-| Оборудование и амортизация | 2 000 ₽ |
-| Электроэнергия | 500 ₽ |
-| Хостинг и домен | 500 ₽ |
-| Программное обеспечение | 0 ₽ |
-| Продвижение проекта | 1 000 ₽ |
-| Прочие расходы | 500 ₽ |
-| **Итого** | **4 500 ₽** |
+## Development
 
-### Возможные источники дохода
+- Source tree: `shell/`, `kernel/`, `boot/`, `docs/`
+- Build scripts: `build.ps1`, `build_iso.ps1` (Windows); `build.sh` (Linux/macOS)
+- Test scripts (legacy): see git history — most were removed in `release/dreamos-stable`
 
-| Источник дохода | Описание |
-|---|---|
-| Техническая поддержка | Платная установка, настройка и устранение неполадок |
-| Корпоративные лицензии | Коммерческое лицензирование для организаций |
-| Платные приложения | Дополнительные программы и приложения для DreamOS |
-| Пожертвования | Добровольная финансовая поддержка проекта |
-| Партнёрские проекты | Совместная разработка и интеграция решений на базе DreamOS |
+---
 
-Указанные источники дохода являются возможными направлениями монетизации. Фактическая выручка появится только после начала коммерческой деятельности.
+## Contact
 
-### Пример ежемесячного финансового результата
+Project maintained by [FROMIX](https://github.com/Fromix1234).
 
-| Финансовый показатель | Сумма |
-|---|---:|
-| Выручка | 15 000 ₽ |
-| Операционные расходы | 4 500 ₽ |
-| **Операционная прибыль** | **10 500 ₽** |
-| Рентабельность продаж | 70% |
-
-Операционная прибыль рассчитывается как разница между выручкой и операционными расходами. Она не учитывает налоги и стоимость собственного труда разработчика.
-
-Финансовая модель будет обновляться по мере развития проекта и появления фактических данных о расходах и доходах.
-Выше указанная информация про доходы и прибыли(примерное)
-
-
-'''mermaid
-gantt
-    title DreamOS — план разработки
-    dateFormat YYYY-MM-DD
-    axisFormat %d.%m
-
-    section Завершено
-    Все остальные этапы проекта :done, completed, 2026-11-02, 1d
-
-    section Ядро Rust
-    Разработка ядра :active, kernel, 2026-11-03, 21d
-
-    section Графическая оболочка
-    Реализация интерфейса :active, gui, 2026-11-03, 28d
-    Оптимизация интерфейса :optimization, after gui, 7d
-
-    section Интеграция и тестирование
-    Интеграция ядра и оболочки :integration, after gui, 7d
-    Финальное тестирование :final, after integration, 7d
-'''
-
-        
-
-<div align="center">
-  <sub>© 2026 DreamOS Project. All rights reserved. Designed by FROMIX.</sub>
-</div>
+© 2026 DreamOS Project. All rights reserved.
